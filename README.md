@@ -31,6 +31,16 @@ The app runs fully offline with no configuration. To enable cloud sync, copy
 | `npm run gen:icons` | regenerate PWA icons |
 | `npm run test:rls` | prove cross-owner reads are denied (needs live Supabase + test users) |
 
+## Features
+
+79-page continuously-scrolling planner (year / 12 months / 53 weeks / 13
+sections) · pressure-sensitive vector ink with palm rejection · Drawboard-style
+tool palette · text/task/image blocks with Ctrl+V paste + carry-tasks-forward ·
+instant page duplication · undo/redo · computed US holidays + moon phases ·
+pen-tappable habit tracker · customizable color categories · Google Calendar
+import + attendee invites ([setup](docs/google-setup.md)) · hyperlinked PDF
+export (Letter size).
+
 ## Docs
 
 - [Master build plan](docs/Jo-Planner-Master-Build-Plan.md)

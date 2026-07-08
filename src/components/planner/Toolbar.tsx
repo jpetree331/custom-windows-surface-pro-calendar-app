@@ -10,10 +10,12 @@ export default function Toolbar({
   onAddImage,
   onDuplicatePage,
   onOpenManage,
+  onExport,
 }: {
   onAddImage: (file: File) => void;
   onDuplicatePage: () => void;
   onOpenManage: () => void;
+  onExport: (scope: "year" | "page") => void;
 }) {
   const ui = usePlannerUI();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -110,10 +112,26 @@ export default function Toolbar({
         ⧉ Duplicate page
       </button>
       <button
+        data-action="export-page"
+        title="Export this page to PDF"
+        onClick={() => onExport("page")}
+        className="ml-auto flex h-9 items-center justify-center gap-1 rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
+      >
+        ⬇ Page PDF
+      </button>
+      <button
+        data-action="export-year"
+        title="Export the full year to a hyperlinked PDF"
+        onClick={() => onExport("year")}
+        className="flex h-9 items-center justify-center gap-1 rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
+      >
+        ⬇ Year PDF
+      </button>
+      <button
         data-action="open-manage"
         title="Habits & categories"
         onClick={onOpenManage}
-        className="ml-auto flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100"
+        className="flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100"
       >
         ⚙
       </button>

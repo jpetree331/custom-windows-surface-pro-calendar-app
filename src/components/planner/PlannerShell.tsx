@@ -219,6 +219,22 @@ export default function PlannerShell() {
     if (pageId) void duplicatePage(pageId);
   }, [viewportCenterPageId]);
 
+  const onExport = useCallback(
+    async (scope: "year" | "page") => {
+      const { exportPdf } = await import("@/lib/pdf/export");
+      const pageId = scope === "page" ? (viewportCenterPageId() ?? undefined) : undefined;
+      const bytes = await exportPdf({ scope, pageId });
+      const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = scope === "year" ? "jos-planner-2026.pdf" : "jos-planner-page.pdf";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    },
+    [viewportCenterPageId]
+  );
+
   if (!planner || !pages || pages.length === 0) {
     return (
       <main className="flex min-h-screen items-center justify-center text-slate-600">
@@ -264,6 +280,7 @@ export default function PlannerShell() {
           onAddImage={onAddImage}
           onDuplicatePage={onDuplicatePage}
           onOpenManage={() => setShowManage(true)}
+          onExport={(scope) => void onExport(scope)}
         />
         {showManage && <ManageDialog plannerId={planner.id} onClose={() => setShowManage(false)} />}
       </div>
