@@ -1,14 +1,17 @@
-# Google Calendar setup (one-time, ~10 minutes)
+# Google setup — Calendar + Drive backup (one-time, ~10 minutes)
 
 The Google layer is fully client-side (GIS token model): tokens live only on
 Jo's device, no server secret exists, and the only third party contacted is
-Google — within Gate B scope.
+Google — within Gate B scope. The same connection powers **cloud backup to
+Jo's own Google Drive** (hidden app folder — the app can only see the one file
+it creates there).
 
 ## Create the OAuth client (whoever hosts does this once)
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a
    project (e.g. `jo-planner`).
-2. **APIs & Services → Library** → enable **Google Calendar API**.
+2. **APIs & Services → Library** → enable **Google Calendar API** AND
+   **Google Drive API** (the second one powers the Drive auto-backup).
 3. **APIs & Services → OAuth consent screen** → External → fill the app name +
    your email. Keep **Publishing status: Testing** and add Jo's Google account
    under **Test users** (this is the plan's "you host for Jo" simplest mode —
@@ -20,12 +23,25 @@ Google — within Gate B scope.
 5. Copy the client ID into `.env.local`:
    `NEXT_PUBLIC_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com`
 
-## Scope used
+## Scopes used
 
-`https://www.googleapis.com/auth/calendar.events` — read + create events (needed
-for the attendee-invite flow). For strict import-only, change `GOOGLE_SCOPE` in
-`src/lib/google/auth.ts` to `.../calendar.events.readonly` and remove the
-"Create in Google" form.
+- `https://www.googleapis.com/auth/calendar.events` — read + create events
+  (needed for the attendee-invite flow). For strict import-only, change
+  `GOOGLE_SCOPE` in `src/lib/google/auth.ts` to `.../calendar.events.readonly`
+  and remove the "Create in Google" form.
+- `https://www.googleapis.com/auth/drive.appdata` — the hidden per-app Drive
+  folder for automatic backups. This scope cannot see any of Jo's real Drive
+  files. (If she connected before this scope existed, the next connect shows
+  one extra consent checkbox — approve once.)
+
+## How Drive auto-backup behaves
+
+While the app is open with Google connected, it silently uploads a full backup
+(ink, notes, images, habits) to her Drive app folder every few minutes of
+activity and whenever the app is hidden/closed. A fresh install never
+auto-uploads (so a new device can't clobber a good backup before restore).
+Manual buttons live in ⚙ → Backup: **Back up to Drive now** and **Restore
+from Drive…** (restore merges — never deletes newer local work).
 
 ## Manual verification script (the Phase 5 verify items needing a live account)
 

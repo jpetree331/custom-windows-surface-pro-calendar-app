@@ -2,16 +2,54 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createBackup, restoreBackup, ensurePersistentStorage } from "@/lib/backup";
+import { lastDriveBackupAt, recordDriveBackup } from "@/lib/backup-auto";
+import { getAccessToken, googleClientId } from "@/lib/google/auth";
+import { downloadDriveBackup, uploadDriveBackup } from "@/lib/google/drive";
 
 /** Backup / restore section of the settings dialog. */
 export default function BackupPanel() {
   const [status, setStatus] = useState("");
   const [persisted, setPersisted] = useState<boolean | null>(null);
+  const [driveAt, setDriveAt] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void ensurePersistentStorage().then(setPersisted);
+    setDriveAt(lastDriveBackupAt());
   }, []);
+
+  const driveBackupNow = async () => {
+    try {
+      setStatus("Backing up to Google Drive…");
+      const token = await getAccessToken();
+      const blob = await createBackup();
+      await uploadDriveBackup(token, blob);
+      await recordDriveBackup();
+      setDriveAt(lastDriveBackupAt());
+      setStatus("Backed up to the app folder in Jo's Google Drive ✔ (auto-backup keeps it fresh from now on)");
+    } catch (err) {
+      setStatus(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const driveRestore = async () => {
+    try {
+      setStatus("Looking for a Drive backup…");
+      const token = await getAccessToken();
+      const found = await downloadDriveBackup(token);
+      if (!found) {
+        setStatus("No Drive backup found for this Google account yet.");
+        return;
+      }
+      const { restored } = await restoreBackup(found.json);
+      const total = Object.values(restored).reduce((a, b) => a + b, 0);
+      setStatus(
+        `Restored ${total} items from the Drive backup of ${new Date(found.modifiedTime).toLocaleString()}. Newer local work was kept.`
+      );
+    } catch (err) {
+      setStatus(String(err instanceof Error ? err.message : err));
+    }
+  };
 
   const download = async () => {
     try {
@@ -78,6 +116,34 @@ export default function BackupPanel() {
           }}
         />
       </div>
+      {googleClientId() && (
+        <div className="mt-3" data-drive-backup>
+          <p className="mb-2 text-xs text-slate-500">
+            <span className="font-semibold">Google Drive:</span> once connected, the app
+            auto-backs-up to a hidden app folder in Jo&apos;s own Drive every few
+            minutes of use — it can only see its own file, nothing else in her Drive.
+            {driveAt && (
+              <span data-drive-status> Last Drive backup: {new Date(driveAt).toLocaleString()}.</span>
+            )}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => void driveBackupNow()}
+              data-action="drive-backup"
+              className="rounded bg-emerald-600 px-3 py-1 text-sm font-semibold text-white"
+            >
+              Back up to Drive now
+            </button>
+            <button
+              onClick={() => void driveRestore()}
+              data-action="drive-restore"
+              className="rounded border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Restore from Drive…
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

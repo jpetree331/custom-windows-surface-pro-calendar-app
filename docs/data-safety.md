@@ -46,9 +46,16 @@ means:
   stores are never dropped) — this is a standing rule for anyone touching
   `src/lib/db/db.ts`.
 
-## The eventual upgrade
+## Automatic cloud backup (shipped)
 
-Real Supabase sync (schema + RLS already shipped, module currently stubbed)
-would turn all of this into automatic continuous cloud backup tied to her
-account instead of her device. Until then: the monthly backup file is the
-discipline that matters.
+With Google connected (the same connection as Calendar), the app
+**auto-backs-up to a hidden app folder in Jo's own Google Drive** — every few
+minutes during use and when the app closes. Restore lives at ⚙ → Backup →
+**Restore from Drive…**. Guard rails: a fresh install never auto-uploads (a
+new device can't overwrite a good backup before restoring), restores merge by
+id, and the app can only see its own file — nothing else in her Drive.
+
+With this in place the manual backup file becomes the belt-and-suspenders
+copy; the Drive backup is the always-fresh one. The Supabase/Postgres sync
+mirror remains optional future work (schema + RLS already in the repo) and is
+no longer required for data safety.

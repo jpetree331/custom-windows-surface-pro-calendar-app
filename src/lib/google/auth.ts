@@ -8,7 +8,10 @@
  */
 
 // Scope names verified against developers.google.com/workspace/calendar/api/auth (2026-07-08).
-export const GOOGLE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+// drive.appdata = hidden per-app folder in Jo's OWN Google Drive (cloud backup);
+// the app can only see files it created there, nothing else in her Drive.
+export const GOOGLE_SCOPE =
+  "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.appdata";
 
 const GIS_SRC = "https://accounts.google.com/gsi/client";
 const TOKEN_KEY = "jotter.gtoken";
