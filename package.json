@@ -1,0 +1,33 @@
+{
+  "name": "jotter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pen-first, continuously-scrolling digital planner for a Windows Surface Pro",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "gen:icons": "node scripts/gen-icons.mjs",
+    "test:rls": "node supabase/tests/rls-check.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.1",
+    "dexie": "^4.4.4",
+    "dexie-react-hooks": "^4.4.0",
+    "next": "16.2.10",
+    "pdf-lib": "^1.17.1",
+    "perfect-freehand": "^1.2.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-virtuoso": "^4.18.10"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^5.9.0"
+  }
+}

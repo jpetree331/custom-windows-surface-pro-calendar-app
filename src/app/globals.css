@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  /* Planner palette sampled from the reference screenshots */
+  --color-planner-mint: #d9f5dc;
+  --color-planner-sky: #a9c6f7;
+  --color-planner-teal: #cdeef2;
+  --color-planner-date: #3fa9f5;
+  --color-planner-line: #1a1a1a;
+}
+
+html,
+body {
+  height: 100%;
+  overscroll-behavior-y: none;
+}
+
+body {
+  background: linear-gradient(
+    90deg,
+    var(--color-planner-mint) 0%,
+    var(--color-planner-teal) 45%,
+    var(--color-planner-sky) 100%
+  );
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
