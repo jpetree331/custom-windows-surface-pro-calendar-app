@@ -1,5 +1,5 @@
 import type { Page } from "@/lib/db/types";
-import { addDays, fromISO, toISO, DAY_ABBR, MONTH_NAMES } from "@/lib/planner/dates";
+import { addDays, fromISO, toISO, DAY_ABBR } from "@/lib/planner/dates";
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame, { LabelPill } from "./PageFrame";
@@ -88,21 +88,6 @@ export default function WeekPage({ page }: { page: Page }) {
         </div>
       </div>
 
-      {/* Vertical month tag on the right edge */}
-      <div
-        className="absolute font-bold tracking-[0.35em]"
-        style={{
-          right: "0.1cqw",
-          top: "50%",
-          transform: "translateY(-50%) rotate(90deg)",
-          transformOrigin: "center",
-          fontSize: "2.4cqw",
-          color: "#3fc4f5",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {MONTH_NAMES[page.monthIndex]}
-      </div>
     </PageFrame>
   );
 }

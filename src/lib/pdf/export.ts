@@ -6,7 +6,6 @@ import {
   PDFRef,
   StandardFonts,
   rgb,
-  degrees,
   BlendMode,
   type RGB,
 } from "pdf-lib";
@@ -369,15 +368,6 @@ function drawWeek(ctx: Ctx, page: PDFPage, p: Page) {
     }
   });
 
-  // vertical month tag
-  page.drawText(MONTH_NAMES[p.monthIndex], {
-    x: px(PAGE_W - 8),
-    y: py(PAGE_H / 2 - 40),
-    size: 13,
-    font: ctx.bold,
-    color: hex("#3fc4f5"),
-    rotate: degrees(-90),
-  });
 }
 
 function drawMonth(ctx: Ctx, page: PDFPage, p: Page) {
