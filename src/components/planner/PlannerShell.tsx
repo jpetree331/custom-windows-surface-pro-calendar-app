@@ -18,12 +18,15 @@ import {
   makeTextBlock,
   pasteClipboardBlock,
 } from "@/lib/blocks/actions";
+import { ensureStarterCategories } from "@/lib/categories/actions";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
 import SideButtons from "./SideButtons";
 import Toolbar from "./Toolbar";
 import InkCanvas from "./InkCanvas";
 import BlocksLayer from "./BlocksLayer";
+import HabitGrid from "./HabitGrid";
+import ManageDialog from "./ManageDialog";
 import { PlannerUIContext, type PlannerUI } from "./ui-context";
 
 /** The whole planner: tabs, side buttons, toolbar, virtualized ink-enabled feed. */
@@ -38,8 +41,13 @@ export default function PlannerShell() {
   const virtuoso = useRef<VirtuosoHandle>(null);
   const scrollerEl = useRef<HTMLElement | null>(null);
 
+  const [showManage, setShowManage] = useState(false);
+
   useEffect(() => {
-    void ensurePlannerSeeded().then(setPlanner);
+    void ensurePlannerSeeded().then(async (p) => {
+      await ensureStarterCategories(p.id);
+      setPlanner(p);
+    });
   }, []);
 
   const pages = useLiveQuery(
@@ -241,17 +249,23 @@ export default function PlannerShell() {
             rangeChanged={onRangeChanged}
             itemContent={(_, page) => (
               <div className="px-2 py-1.5 pr-12" data-page-index={page.index} data-page-label={page.label}>
-                <div className="relative overflow-hidden rounded-md">
+                <div className="relative overflow-hidden rounded-md" style={{ containerType: "inline-size" }}>
                   <PageView page={page} />
                   <BlocksLayer pageId={page.id} />
                   <InkCanvas pageId={page.id} />
+                  {page.type === "week" && <HabitGrid page={page} plannerId={planner.id} />}
                 </div>
               </div>
             )}
             style={{ height: "100%" }}
           />
         </div>
-        <Toolbar onAddImage={onAddImage} onDuplicatePage={onDuplicatePage} />
+        <Toolbar
+          onAddImage={onAddImage}
+          onDuplicatePage={onDuplicatePage}
+          onOpenManage={() => setShowManage(true)}
+        />
+        {showManage && <ManageDialog plannerId={planner.id} onClose={() => setShowManage(false)} />}
       </div>
     </PlannerUIContext.Provider>
   );

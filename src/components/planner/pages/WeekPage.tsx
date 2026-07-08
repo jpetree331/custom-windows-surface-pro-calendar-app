@@ -5,7 +5,6 @@ import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame, { LabelPill } from "./PageFrame";
 
 const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
-const HABIT_ROWS = 9;
 
 /** Weekly spread: 7 day rows left, TASKS / CLEANING / HABITS column right. */
 export default function WeekPage({ page }: { page: Page }) {
@@ -79,42 +78,8 @@ export default function WeekPage({ page }: { page: Page }) {
           </div>
           <div className="flex min-h-0 flex-1 flex-col border-t-[0.18cqw] border-black p-[0.8cqw]">
             <LabelPill text="CLEANING" />
-            {/* Habits grid pinned to the bottom */}
-            <div
-              className="mt-auto mr-[2.2cqw] bg-white/45"
-              style={{ fontSize: "1.1cqw" }}
-            >
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr>
-                    <th
-                      className="border font-bold"
-                      style={{ borderColor: "#8fb8d0", width: "32%" }}
-                    >
-                      HABITS
-                    </th>
-                    {DAY_ABBR.map((d) => (
-                      <th key={d} className="border font-semibold" style={{ borderColor: "#8fb8d0" }}>
-                        {d}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: HABIT_ROWS }, (_, r) => (
-                    <tr key={r}>
-                      {Array.from({ length: 8 }, (_, c) => (
-                        <td
-                          key={c}
-                          className="border"
-                          style={{ borderColor: "#8fb8d0", height: "1.7cqw" }}
-                        />
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {/* The interactive HABITS grid renders in the overlay stack
+                (HabitGrid.tsx) so pen taps toggle checks. */}
           </div>
         </div>
       </div>

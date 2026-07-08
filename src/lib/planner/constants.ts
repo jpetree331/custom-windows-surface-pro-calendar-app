@@ -4,6 +4,12 @@ export const PAGE_H = 1300;
 
 export const PLANNER_YEAR = 2026;
 
+/**
+ * HABITS grid region on week pages, in % of page size. The interactive grid
+ * overlay renders here, ABOVE the ink canvas, so pen taps toggle checks.
+ */
+export const HABIT_REGION = { left: 58.9, width: 36.5, bottom: 2.0, height: 18.5 };
+
 /** Section pages at the back of the planner (13 pages → 79 total). */
 export const SECTIONS: { key: string; label: string; count: number }[] = [
   { key: "todo", label: "TO DO", count: 2 },

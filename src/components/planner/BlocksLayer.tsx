@@ -19,6 +19,8 @@ function ImageContent({ blob }: { blob: Blob }) {
 function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   const ui = usePlannerUI();
   const selected = ui.selectedBlockId === block.id;
+  const categories = useLiveQuery(() => db.categories.toArray(), []) ?? [];
+  const category = categories.find((c) => c.id === block.categoryId);
   const scale = pageWidth / PAGE_W;
   const [editing, setEditing] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
@@ -91,6 +93,8 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
         zIndex: block.z,
         pointerEvents: ui.tool === "select" ? "auto" : "none",
         outline: selected ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
+        borderLeft: category && block.type !== "image" ? `4px solid ${category.color}` : undefined,
+        background: category && block.type !== "image" ? `${category.color}1f` : undefined,
         transform: undefined,
       }}
       onPointerDown={(e) => startDrag(e, "move")}
@@ -146,7 +150,26 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             onPointerMove={onDragMove}
             onPointerUp={(e) => commitDrag(e)}
           />
-          <div className="absolute -top-8 left-0 flex gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="absolute -top-8 left-0 flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+            {block.type !== "image" &&
+              categories.map((c) => (
+                <button
+                  key={c.id}
+                  title={`Category: ${c.name}`}
+                  data-category-dot={c.name}
+                  onClick={() =>
+                    void updateBlock(block, {
+                      ...block,
+                      categoryId: block.categoryId === c.id ? undefined : c.id,
+                      updatedAt: Date.now(),
+                    })
+                  }
+                  className={`h-4 w-4 rounded-full border ${
+                    block.categoryId === c.id ? "border-black ring-2 ring-white" : "border-white/70"
+                  }`}
+                  style={{ background: c.color }}
+                />
+              ))}
             <button
               className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold text-white"
               onClick={() => copyBlockToClipboard(block)}
