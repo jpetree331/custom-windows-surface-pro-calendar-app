@@ -182,7 +182,9 @@ export default function PlannerShell() {
       const pageId = viewportCenterPageId();
       if (!pageId) return;
       e.preventDefault();
-      if (internal && (internal.type === "image" || internal.content === text || text === "")) {
+      // Fresh OS-clipboard text wins over a previously copied block — unless the
+      // text IS that block's content (then paste the richer block clone).
+      if (internal && (internal.content === text || !text.trim())) {
         void pasteClipboardBlock(pageId).then((b) => b && setSelectedBlockId(b.id));
       } else if (text.trim()) {
         const block = makeTextBlock(pageId, PAGE_W * 0.3, PAGE_H * 0.35, text);

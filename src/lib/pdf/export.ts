@@ -512,22 +512,26 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
     }
     const size = 9;
     const prefix = b.type === "task" ? (b.checked ? "[x] " : "[ ] ") : "";
-    const words = safe(prefix + b.content).split(/\s+/);
-    let line = "";
+    // Preserve the user's line breaks; wrap each source line independently.
     let yCursor = b.y + 14;
-    for (const word of words) {
-      const probe = line ? `${line} ${word}` : word;
-      if (ctx.font.widthOfTextAtSize(probe, size) > (b.w - 10) * S && line) {
+    outer: for (const srcLine of safe(prefix + b.content).split("\n")) {
+      let line = "";
+      for (const word of srcLine.split(/[ \t]+/)) {
+        const probe = line ? `${line} ${word}` : word;
+        if (ctx.font.widthOfTextAtSize(probe, size) > (b.w - 10) * S && line) {
+          page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: INK_BLACK });
+          line = word;
+          yCursor += 16;
+          if (yCursor > b.y + b.h) break outer;
+        } else {
+          line = probe;
+        }
+      }
+      if (line) {
         page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: INK_BLACK });
-        line = word;
         yCursor += 16;
         if (yCursor > b.y + b.h) break;
-      } else {
-        line = probe;
       }
-    }
-    if (line && yCursor <= b.y + b.h + 2) {
-      page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: INK_BLACK });
     }
   }
 
