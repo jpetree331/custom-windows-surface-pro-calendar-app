@@ -124,6 +124,25 @@ describe("exportPdf", () => {
     expect((julText.match(/ c\n/g) ?? []).length).toBeGreaterThan(3);
   }, 30000);
 
+  it("duplicated pages get the full link chrome automatically (Jo's Drawboard roadblock)", async () => {
+    const { duplicatePage } = await import("@/lib/blocks/actions");
+    const pages = await db.pages.where("plannerId").equals(PLANNER_ID).sortBy("index");
+    const wk = pages.find((p) => p.dateStart === "2026-07-06")!;
+    const copy = await duplicatePage(wk.id);
+    const bytes = await exportPdf({ scope: "year", todayISO: "2026-07-08" });
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBe(80);
+    // The duplicate carries all 19 nav links — nothing to "copy" manually, ever.
+    const after = await db.pages.where("plannerId").equals(PLANNER_ID).sortBy("index");
+    const copyIdx = after.findIndex((p) => p.id === copy!.id);
+    const annots = doc.getPage(copyIdx).node.lookup(PDFName.of("Annots"), PDFArray);
+    expect(annots.size()).toBe(19);
+    // And its JUL tab still targets the ORIGINAL July month page.
+    const julIdx = after.findIndex((p) => p.type === "month" && p.monthIndex === 6);
+    const dest = annots.lookup(6, PDFDict).lookup(PDFName.of("Dest"), PDFArray);
+    expect((dest.get(0) as PDFRef).toString()).toBe(doc.getPage(julIdx).ref.toString());
+  }, 30000);
+
   it("single page export produces exactly one page", async () => {
     const pages = await db.pages.where("plannerId").equals(PLANNER_ID).sortBy("index");
     const wk = pages.find((p) => p.dateStart === "2026-07-06")!;

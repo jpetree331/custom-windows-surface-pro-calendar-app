@@ -15,6 +15,7 @@ import { db } from "@/lib/db/db";
 import type { Block, Habit, HabitCheck, Page, PlannerEvent, Stroke } from "@/lib/db/types";
 import { PAGE_W, PAGE_H, SECTIONS, SIDE_BUTTONS, HABIT_REGION } from "@/lib/planner/constants";
 import { MONTH_ABBR, MONTH_NAMES, DAY_ABBR, addDays, fromISO, toISO, daysInMonth, firstDowOfMonth } from "@/lib/planner/dates";
+import { currentWeekPageIndex } from "@/lib/planner/navigation";
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import { PT_TO_UNITS, HIGHLIGHTER_OPACITY } from "@/lib/ink/tools";
@@ -99,13 +100,9 @@ function chromeLinks(ctx: Ctx): { draw: (page: PDFPage) => void; links: LinkSpec
   const monthTargets = MONTH_ABBR.map((_, m) =>
     ctx.pages.findIndex((p) => p.type === "month" && p.monthIndex === m)
   );
-  const weekTarget = (() => {
-    const exact = ctx.pages.findIndex(
-      (p) => p.type === "week" && p.dateStart <= ctx.todayISO && ctx.todayISO <= p.dateEnd
-    );
-    if (exact >= 0) return exact;
-    return ctx.pages.findIndex((p) => p.type === "week");
-  })();
+  // NOTE: a static PDF can't recompute dates — ✱ links to the week containing
+  // the EXPORT date. The in-app button always recomputes live.
+  const weekTarget = currentWeekPageIndex(ctx.pages, ctx.todayISO);
   const sectionTarget = (key: string) =>
     ctx.pages.findIndex((p) => p.type === "section" && p.meta.sectionKey === key);
 

@@ -6,6 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import type { Planner } from "@/lib/db/types";
 import { db } from "@/lib/db/db";
 import { ensurePlannerSeeded } from "@/lib/planner/generate";
+import { currentWeekPageIndex } from "@/lib/planner/navigation";
 import { toISO } from "@/lib/planner/dates";
 import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 import { PEN_COLORS, type ToolId } from "@/lib/ink/tools";
@@ -113,18 +114,12 @@ export default function PlannerShell() {
     [jumpToIndex]
   );
 
-  const currentWeekIndex = useCallback((): number => {
-    const all = pagesRef.current;
-    const today = toISO(new Date());
-    const exact = all.findIndex(
-      (p) => p.type === "week" && p.dateStart <= today && today <= p.dateEnd
-    );
-    if (exact >= 0) return exact;
-    const weeks = all.filter((p) => p.type === "week");
-    if (weeks.length === 0) return 0;
-    const target = today < weeks[0].dateStart ? weeks[0] : weeks[weeks.length - 1];
-    return all.findIndex((p) => p.id === target.id);
-  }, []);
+  // Recomputed from today's date on EVERY click — ✱ rolls over each Monday
+  // (and every other day) without any refresh or timer.
+  const currentWeekIndex = useCallback(
+    () => currentWeekPageIndex(pagesRef.current, toISO(new Date())),
+    []
+  );
 
   const jumpToTarget = useCallback(
     (target: string) => {
