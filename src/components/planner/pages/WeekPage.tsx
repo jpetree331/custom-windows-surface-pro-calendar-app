@@ -1,5 +1,7 @@
 import type { Page } from "@/lib/db/types";
-import { addDays, fromISO, DAY_ABBR, MONTH_NAMES } from "@/lib/planner/dates";
+import { addDays, fromISO, toISO, DAY_ABBR, MONTH_NAMES } from "@/lib/planner/dates";
+import { holidaysForYear } from "@/lib/calendar/holidays";
+import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame, { LabelPill } from "./PageFrame";
 
 const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
@@ -9,6 +11,14 @@ const HABIT_ROWS = 9;
 export default function WeekPage({ page }: { page: Page }) {
   const monday = fromISO(page.dateStart);
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  // Per-day lookup (memoized per year) — edge weeks span adjacent years.
+  const marksFor = (d: Date) => {
+    const iso = toISO(d);
+    return {
+      holidays: holidaysForYear(d.getFullYear()).get(iso),
+      moon: moonPhasesForYear(d.getFullYear()).get(iso),
+    };
+  };
 
   return (
     <PageFrame>
@@ -39,7 +49,25 @@ export default function WeekPage({ page }: { page: Page }) {
                   ))}
                 </div>
               </div>
-              <div className="flex-1" data-day={d.toISOString().slice(0, 10)} />
+              <div className="relative flex-1" data-day={toISO(d)}>
+                {(() => {
+                  const m = marksFor(d);
+                  if (!m.holidays && !m.moon) return null;
+                  return (
+                    <div
+                      className="absolute right-[0.6cqw] top-[0.3cqw] flex items-center gap-[0.5cqw]"
+                      style={{ fontSize: "1.5cqw" }}
+                    >
+                      {m.holidays && (
+                        <span className="font-semibold" style={{ color: "#2b6fb3" }}>
+                          {m.holidays.join(" · ")}
+                        </span>
+                      )}
+                      {m.moon && <span title={m.moon.name}>{m.moon.glyph}</span>}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           ))}
         </div>

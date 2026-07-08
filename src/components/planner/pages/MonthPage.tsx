@@ -1,5 +1,7 @@
 import type { Page } from "@/lib/db/types";
 import { DAY_ABBR, daysInMonth, firstDowOfMonth } from "@/lib/planner/dates";
+import { holidaysForYear } from "@/lib/calendar/holidays";
+import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame from "./PageFrame";
 
 /** Month page: Mon-start grid with blue date numbers. */
@@ -13,6 +15,10 @@ export default function MonthPage({ page }: { page: Page }) {
     const day = i - lead + 1;
     return day >= 1 && day <= count ? day : null;
   });
+  const holidays = holidaysForYear(year);
+  const moons = moonPhasesForYear(year);
+  const isoOf = (day: number) =>
+    `${year}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
   return (
     <PageFrame>
@@ -45,9 +51,26 @@ export default function MonthPage({ page }: { page: Page }) {
               data-date={day ? `${year}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` : undefined}
             >
               {day && (
-                <span className="font-bold leading-none" style={{ fontSize: "2.2cqw", color: "#3fa9f5" }}>
-                  {day}
-                </span>
+                <div className="flex h-full flex-col">
+                  <div className="flex items-start justify-between">
+                    <span className="font-bold leading-none" style={{ fontSize: "2.2cqw", color: "#3fa9f5" }}>
+                      {day}
+                    </span>
+                    {moons.get(isoOf(day)) && (
+                      <span style={{ fontSize: "1.6cqw" }} title={moons.get(isoOf(day))!.name}>
+                        {moons.get(isoOf(day))!.glyph}
+                      </span>
+                    )}
+                  </div>
+                  {holidays.get(isoOf(day)) && (
+                    <span
+                      className="mt-auto font-semibold leading-tight"
+                      style={{ fontSize: "1.15cqw", color: "#2b6fb3" }}
+                    >
+                      {holidays.get(isoOf(day))!.join(" · ")}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           ))}
