@@ -6,6 +6,7 @@ import { db } from "@/lib/db/db";
 import { addHabit, deleteHabit, renameHabit, setHabitCadence } from "@/lib/habits/actions";
 import { addCategory, deleteCategory, updateCategory } from "@/lib/categories/actions";
 import GooglePanel from "./GooglePanel";
+import BackupPanel from "./BackupPanel";
 
 /** Settings dialog: manage habits (daily/weekly) and color categories. */
 export default function ManageDialog({
@@ -148,6 +149,7 @@ export default function ManageDialog({
         </form>
 
         <GooglePanel plannerId={plannerId} />
+        <BackupPanel />
       </div>
     </div>
   );
