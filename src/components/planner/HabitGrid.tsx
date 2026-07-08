@@ -10,9 +10,13 @@ import { checkDate, toggleHabitCheck } from "@/lib/habits/actions";
 const MIN_ROWS = 9;
 
 /**
- * Interactive HABITS grid on week pages. Sits ABOVE the ink canvas so a pen
- * tap toggles a check (per the plan: "tappable/pennable"). Weekly habits show
- * one full-width cell; daily habits get Mon–Sun cells.
+ * HABITS grid on week pages — pen-first, paper-style:
+ * - The grid itself is `pointer-events: none`, so Jo can HANDWRITE habit names
+ *   on the empty lines and pen her own checkmarks — ink passes straight
+ *   through to the canvas below.
+ * - Only the day cells of habits added via ⚙ are interactive: a pen tap there
+ *   toggles a persisted check (weekly habits = one full-width cell).
+ * All rows share equal heights (header included).
  */
 export default function HabitGrid({ page, plannerId }: { page: Page; plannerId: string }) {
   const monday = fromISO(page.dateStart);
@@ -32,14 +36,15 @@ export default function HabitGrid({ page, plannerId }: { page: Page; plannerId: 
   }, [habits, page.dateStart]);
 
   const active = (habits ?? []).filter((h) => h.active);
-  const blankRows = Math.max(0, MIN_ROWS - active.length);
+  const totalRows = Math.max(MIN_ROWS, active.length) + 1; // + header
+  const rowH = `${100 / totalRows}%`;
 
   const isChecked = (h: Habit, day: string) => checks?.has(`${h.id}|${checkDate(h, day)}`) ?? false;
 
   return (
     <div
       data-habit-grid={page.id}
-      className="absolute overflow-hidden bg-white/45"
+      className="pointer-events-none absolute overflow-hidden bg-white/30"
       style={{
         left: `${HABIT_REGION.left}%`,
         width: `${HABIT_REGION.width}%`,
@@ -50,7 +55,7 @@ export default function HabitGrid({ page, plannerId }: { page: Page; plannerId: 
     >
       <table className="h-full w-full border-collapse" style={{ tableLayout: "fixed" }}>
         <thead>
-          <tr>
+          <tr style={{ height: rowH }}>
             <th className="border font-bold" style={{ borderColor: "#8fb8d0", width: "30%" }}>
               HABITS
             </th>
@@ -63,7 +68,7 @@ export default function HabitGrid({ page, plannerId }: { page: Page; plannerId: 
         </thead>
         <tbody>
           {active.map((h) => (
-            <tr key={h.id} data-habit-row={h.name}>
+            <tr key={h.id} data-habit-row={h.name} style={{ height: rowH }}>
               <td
                 className="truncate border px-[0.4cqw] font-medium"
                 style={{ borderColor: "#8fb8d0" }}
@@ -74,7 +79,7 @@ export default function HabitGrid({ page, plannerId }: { page: Page; plannerId: 
               {h.cadence === "weekly" ? (
                 <td
                   colSpan={7}
-                  className="cursor-pointer border text-center align-middle"
+                  className="pointer-events-auto cursor-pointer border text-center align-middle"
                   style={{ borderColor: "#8fb8d0" }}
                   data-habit-cell={`${h.id}|weekly`}
                   onPointerDown={(e) => {
@@ -88,7 +93,7 @@ export default function HabitGrid({ page, plannerId }: { page: Page; plannerId: 
                 days.map((day) => (
                   <td
                     key={day}
-                    className="cursor-pointer border text-center align-middle"
+                    className="pointer-events-auto cursor-pointer border text-center align-middle"
                     style={{ borderColor: "#8fb8d0" }}
                     data-habit-cell={`${h.id}|${day}`}
                     onPointerDown={(e) => {
@@ -102,8 +107,9 @@ export default function HabitGrid({ page, plannerId }: { page: Page; plannerId: 
               )}
             </tr>
           ))}
-          {Array.from({ length: blankRows }, (_, r) => (
-            <tr key={`b${r}`}>
+          {Array.from({ length: totalRows - 1 - active.length }, (_, r) => (
+            // Blank paper lines: not interactive — handwrite here with the pen.
+            <tr key={`b${r}`} style={{ height: rowH }}>
               {Array.from({ length: 8 }, (_, c) => (
                 <td key={c} className="border" style={{ borderColor: "#8fb8d0" }} />
               ))}
