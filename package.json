@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "gen:icons": "node scripts/gen-icons.mjs",
     "test:rls": "node supabase/tests/rls-check.mjs"
   },
@@ -27,7 +28,9 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "fake-indexeddb": "^6.2.5",
     "tailwindcss": "^4.3.2",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10"
   }
 }

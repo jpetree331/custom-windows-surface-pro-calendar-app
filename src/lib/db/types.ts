@@ -2,7 +2,7 @@
 
 export type PageType = "year" | "month" | "week" | "section";
 export type BlockType = "text" | "image" | "task";
-export type InkTool = "pen" | "highlighter";
+export type InkTool = "pen" | "highlighter" | "rect";
 export type HabitCadence = "daily" | "weekly";
 export type EventKind = "event" | "birthday" | "reminder";
 
