@@ -1,0 +1,40 @@
+# Google Calendar setup (one-time, ~10 minutes)
+
+The Google layer is fully client-side (GIS token model): tokens live only on
+Jo's device, no server secret exists, and the only third party contacted is
+Google — within Gate B scope.
+
+## Create the OAuth client (whoever hosts does this once)
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a
+   project (e.g. `jo-planner`).
+2. **APIs & Services → Library** → enable **Google Calendar API**.
+3. **APIs & Services → OAuth consent screen** → External → fill the app name +
+   your email. Keep **Publishing status: Testing** and add Jo's Google account
+   under **Test users** (this is the plan's "you host for Jo" simplest mode —
+   no verification review needed).
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID** →
+   type **Web application**. Add your origins to *Authorized JavaScript
+   origins*: `http://localhost:3000` and your production URL
+   (e.g. `https://jo-planner.vercel.app`).
+5. Copy the client ID into `.env.local`:
+   `NEXT_PUBLIC_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com`
+
+## Scope used
+
+`https://www.googleapis.com/auth/calendar.events` — read + create events (needed
+for the attendee-invite flow). For strict import-only, change `GOOGLE_SCOPE` in
+`src/lib/google/auth.ts` to `.../calendar.events.readonly` and remove the
+"Create in Google" form.
+
+## Manual verification script (the Phase 5 verify items needing a live account)
+
+1. `npm run dev` → ⚙ → **Connect & sync now** → Google popup → approve.
+2. Confirm imported events appear on the right week/month days; a weekly
+   repeating event shows on every instance day (Google pre-expands RRULEs).
+3. Create an event with a date+time and an attendee email → confirm the
+   attendee receives an invite and the event appears in Google Calendar with a
+   30-minute popup reminder.
+4. Press **Connect & sync now** twice more → the imported count shows
+   "0 new, N refreshed" — no duplicates.
+5. Birthdays from Google Contacts appear with 🎂 on the correct day cells.

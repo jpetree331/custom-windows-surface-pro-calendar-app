@@ -3,6 +3,7 @@ import { addDays, fromISO, toISO, DAY_ABBR, MONTH_NAMES } from "@/lib/planner/da
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame, { LabelPill } from "./PageFrame";
+import EventChips from "../EventChips";
 
 const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
@@ -66,6 +67,9 @@ export default function WeekPage({ page }: { page: Page }) {
                     </div>
                   );
                 })()}
+                <div className="absolute bottom-[0.3cqw] left-[0.5cqw] right-[30%]">
+                  <EventChips dayISO={toISO(d)} />
+                </div>
               </div>
             </div>
           ))}

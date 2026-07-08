@@ -3,6 +3,7 @@ import { DAY_ABBR, daysInMonth, firstDowOfMonth } from "@/lib/planner/dates";
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame from "./PageFrame";
+import EventChips from "../EventChips";
 
 /** Month page: Mon-start grid with blue date numbers. */
 export default function MonthPage({ page }: { page: Page }) {
@@ -61,6 +62,9 @@ export default function MonthPage({ page }: { page: Page }) {
                         {moons.get(isoOf(day))!.glyph}
                       </span>
                     )}
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-hidden pt-[0.2cqw]">
+                    <EventChips dayISO={isoOf(day)} compact />
                   </div>
                   {holidays.get(isoOf(day)) && (
                     <span
