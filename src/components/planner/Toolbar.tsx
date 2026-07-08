@@ -9,11 +9,13 @@ import { usePlannerUI } from "./ui-context";
 export default function Toolbar({
   onAddImage,
   onDuplicatePage,
+  onAddPage,
   onOpenManage,
   onExport,
 }: {
   onAddImage: (file: File) => void;
   onDuplicatePage: () => void;
+  onAddPage: () => void;
   onOpenManage: () => void;
   onExport: (scope: "year" | "page") => void;
 }) {
@@ -110,6 +112,14 @@ export default function Toolbar({
         className="flex h-9 items-center justify-center gap-1 rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
       >
         ⧉ Duplicate page
+      </button>
+      <button
+        data-action="add-page"
+        title="Insert a new blank page after this one"
+        onClick={onAddPage}
+        className="flex h-9 items-center justify-center gap-1 rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
+      >
+        ＋ Page
       </button>
       <button
         data-action="export-page"

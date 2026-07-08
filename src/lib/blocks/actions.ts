@@ -149,6 +149,38 @@ export async function carryTaskForward(block: Block): Promise<Page | null> {
 }
 
 /**
+ * Insert a fresh blank note/section page right after `afterPageId` — "add
+ * pages willy-nilly". Undoable (reuses the duplicatePage history mechanics
+ * with empty content).
+ */
+export async function addBlankPage(afterPageId: string, label: string): Promise<Page | null> {
+  const anchor = await db.pages.get(afterPageId);
+  if (!anchor) return null;
+  const page: Page = {
+    id: crypto.randomUUID(),
+    plannerId: anchor.plannerId,
+    type: "section",
+    index: anchor.index + 1,
+    label: label.trim().toUpperCase() || "NOTES",
+    monthIndex: -1,
+    dateStart: "",
+    dateEnd: "",
+    meta: { sectionKey: "custom" },
+    updatedAt: Date.now(),
+  };
+  await db.transaction("rw", db.pages, async () => {
+    await db.pages
+      .where("plannerId").equals(anchor.plannerId)
+      .and((p) => p.index > anchor.index)
+      .modify((p) => { p.index += 1; });
+    await db.pages.add(page);
+  });
+  await queueSync("pages", page.id, "put");
+  history.push({ kind: "duplicatePage", page, strokes: [], blocks: [] });
+  return page;
+}
+
+/**
  * Instant page duplication — the specific Drawboard pain point. A page is just
  * rows: clone page + strokes + blocks with fresh ids in one transaction.
  */

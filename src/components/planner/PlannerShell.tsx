@@ -12,6 +12,7 @@ import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 import { PEN_COLORS, type ToolId } from "@/lib/ink/tools";
 import * as history from "@/lib/history";
 import {
+  addBlankPage,
   addBlock,
   duplicatePage,
   getClipboardBlock,
@@ -43,6 +44,8 @@ export default function PlannerShell() {
   const scrollerEl = useRef<HTMLElement | null>(null);
 
   const [showManage, setShowManage] = useState(false);
+  const [showAddPage, setShowAddPage] = useState(false);
+  const [newPageName, setNewPageName] = useState("");
 
   useEffect(() => {
     void ensurePlannerSeeded().then(async (p) => {
@@ -216,6 +219,19 @@ export default function PlannerShell() {
     if (pageId) void duplicatePage(pageId);
   }, [viewportCenterPageId]);
 
+  const onAddPage = useCallback(
+    async (label: string) => {
+      const anchorId = viewportCenterPageId();
+      if (!anchorId) return;
+      const page = await addBlankPage(anchorId, label);
+      if (page) {
+        // liveQuery refresh lands within a tick; then scroll to the new page
+        setTimeout(() => jumpToIndex(page.index), 200);
+      }
+    },
+    [viewportCenterPageId, jumpToIndex]
+  );
+
   const onExport = useCallback(
     async (scope: "year" | "page") => {
       const { exportPdf } = await import("@/lib/pdf/export");
@@ -276,10 +292,51 @@ export default function PlannerShell() {
         <Toolbar
           onAddImage={onAddImage}
           onDuplicatePage={onDuplicatePage}
+          onAddPage={() => setShowAddPage(true)}
           onOpenManage={() => setShowManage(true)}
           onExport={(scope) => void onExport(scope)}
         />
         {showManage && <ManageDialog plannerId={planner.id} onClose={() => setShowManage(false)} />}
+        {showAddPage && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            data-add-page-dialog
+            onClick={() => setShowAddPage(false)}
+          >
+            <form
+              className="w-full max-w-xs rounded-lg bg-white p-4 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              onSubmit={(e) => {
+                e.preventDefault();
+                setShowAddPage(false);
+                void onAddPage(newPageName);
+                setNewPageName("");
+              }}
+            >
+              <h2 className="mb-2 text-base font-bold text-slate-800">New page</h2>
+              <input
+                autoFocus
+                value={newPageName}
+                onChange={(e) => setNewPageName(e.target.value)}
+                placeholder="Page name (e.g. GIFT IDEAS)"
+                data-input="new-page-name"
+                className="mb-3 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddPage(false)}
+                  className="rounded px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white">
+                  Add after this page
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </PlannerUIContext.Provider>
   );

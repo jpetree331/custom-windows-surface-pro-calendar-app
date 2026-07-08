@@ -4,6 +4,7 @@ import { db } from "@/lib/db/db";
 import { buildPages } from "@/lib/planner/generate";
 import type { Page, Stroke } from "@/lib/db/types";
 import {
+  addBlankPage,
   addBlock,
   carryTaskForward,
   duplicatePage,
@@ -123,6 +124,37 @@ describe("duplicatePage", () => {
     expect(await db.strokes.where("pageId").equals(copy!.id).count()).toBe(1);
     sorted = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
     expect(sorted.map((p) => p.index)).toEqual(sorted.map((_, i) => i));
+  });
+});
+
+describe("addBlankPage (add pages willy-nilly)", () => {
+  beforeEach(seed);
+
+  it("inserts a named blank section page right after the anchor, shifting the rest", async () => {
+    const pages = await db.pages.toArray();
+    const wk = pages.find((p) => p.dateStart === "2026-07-06")!;
+    const page = await addBlankPage(wk.id, "gift ideas");
+    expect(page).toMatchObject({ type: "section", label: "GIFT IDEAS", index: wk.index + 1 });
+    const all = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
+    expect(all).toHaveLength(80);
+    expect(all.map((p) => p.index)).toEqual(all.map((_, i) => i));
+    expect(all[wk.index + 1].id).toBe(page!.id);
+    // empty name falls back to NOTES
+    const page2 = await addBlankPage(wk.id, "   ");
+    expect(page2!.label).toBe("NOTES");
+  });
+
+  it("is undoable and restores contiguous indexes", async () => {
+    const pages = await db.pages.toArray();
+    const wk = pages.find((p) => p.dateStart === "2026-07-06")!;
+    await addBlankPage(wk.id, "SCRATCH");
+    expect(await db.pages.count()).toBe(80);
+    await history.undo();
+    expect(await db.pages.count()).toBe(79);
+    const all = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
+    expect(all.map((p) => p.index)).toEqual(all.map((_, i) => i));
+    await history.redo();
+    expect(await db.pages.count()).toBe(80);
   });
 });
 
