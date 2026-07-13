@@ -7,10 +7,13 @@ import {
   addBlankPage,
   addBlock,
   carryTaskForward,
+  copyPageToClipboard,
+  deletePage,
   duplicatePage,
   makeTextBlock,
   addStroke,
   deleteStrokes,
+  pastePageAfter,
 } from "./actions";
 import * as history from "@/lib/history";
 
@@ -155,6 +158,59 @@ describe("addBlankPage (add pages willy-nilly)", () => {
     expect(all.map((p) => p.index)).toEqual(all.map((_, i) => i));
     await history.redo();
     expect(await db.pages.count()).toBe(80);
+  });
+});
+
+describe("page copy / paste / delete (context menu)", () => {
+  beforeEach(seed);
+
+  it("copies a page with content and pastes it after another page", async () => {
+    const pages = await db.pages.toArray();
+    const wk = pages.find((p) => p.dateStart === "2026-07-06")!;
+    await addBlock(makeTextBlock(wk.id, 10, 20, "carry me"));
+    await copyPageToClipboard(wk.id);
+
+    const target = pages.find((p) => p.dateStart === "2026-08-03")!;
+    const pasted = await pastePageAfter(target.id);
+    expect(pasted).not.toBeNull();
+    expect(pasted!.index).toBe(target.index + 1);
+    const all = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
+    expect(all).toHaveLength(80);
+    expect(all.map((p) => p.index)).toEqual(all.map((_, i) => i));
+    const blocks = await db.blocks.where("pageId").equals(pasted!.id).toArray();
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].content).toBe("carry me");
+    expect(blocks[0].id).not.toBe((await db.blocks.where("pageId").equals(wk.id).first())!.id);
+  });
+
+  it("deletes a page with its content; undo restores everything", async () => {
+    const pages = await db.pages.toArray();
+    const wk = pages.find((p) => p.dateStart === "2026-07-06")!;
+    await addBlock(makeTextBlock(wk.id, 10, 20, "precious"));
+    await addStroke({
+      id: "sdel", pageId: wk.id, tool: "pen", color: "#000", width: 1, opacity: 1,
+      points: [[1, 1, 0.5], [2, 2, 0.5]], createdAt: 1,
+    });
+
+    await deletePage(wk.id);
+    expect(await db.pages.get(wk.id)).toBeUndefined();
+    expect(await db.blocks.where("pageId").equals(wk.id).count()).toBe(0);
+    expect(await db.strokes.where("pageId").equals(wk.id).count()).toBe(0);
+    let all = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
+    expect(all).toHaveLength(78);
+    expect(all.map((p) => p.index)).toEqual(all.map((_, i) => i));
+
+    await history.undo();
+    expect(await db.pages.get(wk.id)).toBeDefined();
+    expect(await db.blocks.where("pageId").equals(wk.id).count()).toBe(1);
+    expect(await db.strokes.where("pageId").equals(wk.id).count()).toBe(1);
+    all = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
+    expect(all).toHaveLength(79);
+    expect(all.map((p) => p.index)).toEqual(all.map((_, i) => i));
+
+    await history.redo();
+    expect(await db.pages.get(wk.id)).toBeUndefined();
+    expect(await db.pages.count()).toBe(78);
   });
 });
 

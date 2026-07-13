@@ -4,10 +4,9 @@ import { useState } from "react";
 import { getAccessToken, googleClientId } from "@/lib/google/auth";
 import { insertEvent } from "@/lib/google/api";
 import { importYear } from "@/lib/google/import";
-import { PLANNER_YEAR } from "@/lib/planner/constants";
 
 /** Google Calendar section of the settings dialog: connect, sync, invite. */
-export default function GooglePanel({ plannerId }: { plannerId: string }) {
+export default function GooglePanel({ plannerId, year }: { plannerId: string; year: number }) {
   const [status, setStatus] = useState<string>(
     googleClientId() ? "Not synced this session." : "Not configured — see docs/google-setup.md."
   );
@@ -22,7 +21,7 @@ export default function GooglePanel({ plannerId }: { plannerId: string }) {
     setBusy(true);
     try {
       const token = await getAccessToken();
-      const r = await importYear(plannerId, PLANNER_YEAR, token);
+      const r = await importYear(plannerId, year, token);
       setStatus(`Imported ${r.total} events (${r.added} new, ${r.updated} refreshed).`);
     } catch (err) {
       setStatus(String(err instanceof Error ? err.message : err));

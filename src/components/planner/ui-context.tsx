@@ -13,6 +13,8 @@ export interface PlannerUI {
   setSelectedBlockId: (id: string | null) => void;
   /** Page currently centered in the viewport — paste target. */
   currentPageId: string | null;
+  /** Jump to the week page containing this ISO date (month-grid day tap). */
+  jumpToDate: (iso: string) => void;
   /** Suppress touch scrolling while the pen is down (palm rejection). */
   setPenActive: (active: boolean) => void;
 }

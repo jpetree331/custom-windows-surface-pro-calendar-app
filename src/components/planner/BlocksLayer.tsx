@@ -132,10 +132,10 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             suppressContentEditableWarning
             onBlur={saveText}
             onPointerDown={(e) => editing && e.stopPropagation()}
-            className={`h-full w-full whitespace-pre-wrap break-words font-[500] leading-snug text-slate-900 ${
+            className={`h-full w-full whitespace-pre-wrap break-words font-[500] leading-snug ${
               editing ? "cursor-text bg-white/70 ring-1 ring-blue-300" : ""
             } ${block.type === "task" && block.checked ? "line-through opacity-60" : ""}`}
-            style={{ fontSize: TEXT_SIZE_PT * 1.9 * scale }}
+            style={{ fontSize: TEXT_SIZE_PT * 1.9 * scale, color: block.color ?? "#0f172a" }}
           >
             {block.content}
           </div>
@@ -222,7 +222,15 @@ export default function BlocksLayer({ pageId }: { pageId: string }) {
     if (ui.tool === "text") {
       const rect = hostRef.current!.getBoundingClientRect();
       const scale = PAGE_W / rect.width;
-      const block = makeTextBlock(pageId, (e.clientX - rect.left) * scale, (e.clientY - rect.top) * scale);
+      // New text inherits the active pen color (Jo writes in category colors)
+      const block = makeTextBlock(
+        pageId,
+        (e.clientX - rect.left) * scale,
+        (e.clientY - rect.top) * scale,
+        "",
+        "text",
+        ui.penColor
+      );
       void addBlock(block).then(() => {
         ui.setTool("select");
         ui.setSelectedBlockId(block.id);

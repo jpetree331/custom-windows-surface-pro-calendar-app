@@ -41,7 +41,8 @@ export function makeTextBlock(
   x: number,
   y: number,
   content = "",
-  type: "text" | "task" = "text"
+  type: "text" | "task" = "text",
+  color?: string
 ): Block {
   const now = Date.now();
   return {
@@ -54,6 +55,7 @@ export function makeTextBlock(
     h: type === "task" ? 44 : 120,
     z: now % 100000,
     content,
+    color,
     checked: type === "task" ? false : undefined,
     createdAt: now,
     updatedAt: now,
@@ -146,6 +148,75 @@ export async function carryTaskForward(block: Block): Promise<Page | null> {
     updatedAt: now,
   });
   return nextWeek;
+}
+
+/** In-app clipboard for whole pages (content travels with the page). */
+let pageClipboard: { page: Page; strokes: Stroke[]; blocks: Block[] } | null = null;
+
+export function hasPageClipboard(): boolean {
+  return pageClipboard !== null;
+}
+
+export async function copyPageToClipboard(pageId: string): Promise<boolean> {
+  const page = await db.pages.get(pageId);
+  if (!page) return false;
+  const [strokes, blocks] = await Promise.all([
+    db.strokes.where("pageId").equals(pageId).toArray(),
+    db.blocks.where("pageId").equals(pageId).toArray(),
+  ]);
+  pageClipboard = { page, strokes, blocks };
+  return true;
+}
+
+/** Paste the copied page (with all its ink/blocks) right after `afterPageId`. */
+export async function pastePageAfter(afterPageId: string): Promise<Page | null> {
+  if (!pageClipboard) return null;
+  const anchor = await db.pages.get(afterPageId);
+  if (!anchor) return null;
+  const src = pageClipboard;
+  const copy: Page = {
+    ...src.page,
+    id: crypto.randomUUID(),
+    plannerId: anchor.plannerId,
+    index: anchor.index + 1,
+    updatedAt: Date.now(),
+  };
+  const strokes = src.strokes.map((s) => ({ ...s, id: crypto.randomUUID(), pageId: copy.id }));
+  const blocks = src.blocks.map((b) => ({ ...b, id: crypto.randomUUID(), pageId: copy.id }));
+  await db.transaction("rw", db.pages, db.strokes, db.blocks, async () => {
+    await db.pages
+      .where("plannerId").equals(anchor.plannerId)
+      .and((p) => p.index > anchor.index)
+      .modify((p) => { p.index += 1; });
+    await db.pages.add(copy);
+    await db.strokes.bulkAdd(strokes);
+    await db.blocks.bulkAdd(blocks);
+  });
+  await queueSync("pages", copy.id, "put");
+  history.push({ kind: "duplicatePage", page: copy, strokes, blocks });
+  return copy;
+}
+
+/** Delete a page with everything on it. Undoable (Ctrl+Z restores). */
+export async function deletePage(pageId: string): Promise<boolean> {
+  const page = await db.pages.get(pageId);
+  if (!page) return false;
+  const [strokes, blocks] = await Promise.all([
+    db.strokes.where("pageId").equals(pageId).toArray(),
+    db.blocks.where("pageId").equals(pageId).toArray(),
+  ]);
+  await db.transaction("rw", db.pages, db.strokes, db.blocks, async () => {
+    await db.strokes.bulkDelete(strokes.map((s) => s.id));
+    await db.blocks.bulkDelete(blocks.map((b) => b.id));
+    await db.pages.delete(page.id);
+    await db.pages
+      .where("plannerId").equals(page.plannerId)
+      .and((p) => p.index > page.index)
+      .modify((p) => { p.index -= 1; });
+  });
+  await queueSync("pages", page.id, "delete");
+  history.push({ kind: "deletePage", page, strokes, blocks });
+  return true;
 }
 
 /**

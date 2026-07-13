@@ -7,7 +7,7 @@ import EventChips from "../EventChips";
 
 const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
-/** Weekly spread: 7 day rows left, TASKS / CLEANING / HABITS column right. */
+/** Weekly spread: 7 day rows left, TASKS / REMINDERS / HABITS column right. */
 export default function WeekPage({ page }: { page: Page }) {
   const monday = fromISO(page.dateStart);
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
@@ -81,7 +81,7 @@ export default function WeekPage({ page }: { page: Page }) {
             <LabelPill text="TASKS" />
           </div>
           <div className="flex min-h-0 flex-1 flex-col border-t-[0.18cqw] border-black p-[0.8cqw]">
-            <LabelPill text="CLEANING" />
+            <LabelPill text="REMINDERS" />
             {/* The interactive HABITS grid renders in the overlay stack
                 (HabitGrid.tsx) so pen taps toggle checks. */}
           </div>

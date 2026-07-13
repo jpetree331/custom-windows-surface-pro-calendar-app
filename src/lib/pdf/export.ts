@@ -316,7 +316,7 @@ function drawWeek(ctx: Ctx, page: PDFPage, p: Page) {
     drawDayMarks(ctx, page, toISO(d), { x: left + colW, y: rowTop, w: splitX - left - colW, h: rowH }, false);
   }
 
-  // right column: TASKS / CLEANING
+  // right column: TASKS / REMINDERS
   const cleanY = top + (bottom - top) * 0.52;
   page.drawLine({ start: { x: px(splitX), y: py(cleanY) }, end: { x: px(right), y: py(cleanY) }, thickness: 1.1, color: INK_BLACK });
   const pill = (text: string, x: number, yTop: number) => {
@@ -325,7 +325,7 @@ function drawWeek(ctx: Ctx, page: PDFPage, p: Page) {
     page.drawText(text, { x: px(x) + 6, y: py(yTop + 20) + 3.5, size: 10, font: ctx.bold, color: INK_BLACK });
   };
   pill("TASKS", splitX + 8, top + 4);
-  pill("CLEANING", splitX + 8, cleanY + 4);
+  pill("REMINDERS", splitX + 8, cleanY + 4);
 
   // habits grid with real data
   const gx = (HABIT_REGION.left / 100) * PAGE_W;
@@ -498,6 +498,7 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
       page.drawRectangle({ x: px(b.x), y: py(b.y + b.h), width: 2.5, height: b.h * S, color: hex(color) });
     }
     const size = 9;
+    const textColor = b.color ? hex(b.color) : INK_BLACK;
     const prefix = b.type === "task" ? (b.checked ? "[x] " : "[ ] ") : "";
     // Preserve the user's line breaks; wrap each source line independently.
     let yCursor = b.y + 14;
@@ -506,7 +507,7 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
       for (const word of srcLine.split(/[ \t]+/)) {
         const probe = line ? `${line} ${word}` : word;
         if (ctx.font.widthOfTextAtSize(probe, size) > (b.w - 10) * S && line) {
-          page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: INK_BLACK });
+          page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: textColor });
           line = word;
           yCursor += 16;
           if (yCursor > b.y + b.h) break outer;
@@ -515,7 +516,7 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
         }
       }
       if (line) {
-        page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: INK_BLACK });
+        page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: textColor });
         yCursor += 16;
         if (yCursor > b.y + b.h) break;
       }
@@ -555,11 +556,15 @@ export interface ExportOptions {
   /** required when scope === "page" */
   pageId?: string;
   todayISO?: string;
+  /** which year's planner to export (defaults to the first one found) */
+  plannerId?: string;
 }
 
 /** Render the planner (or one page) to a hyperlinked, printable PDF. */
 export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
-  const planner = (await db.planners.toCollection().first())!;
+  const planner = opts.plannerId
+    ? (await db.planners.get(opts.plannerId))!
+    : (await db.planners.toCollection().first())!;
   const allPages = await db.pages
     .where("[plannerId+index]")
     .between([planner.id, -Infinity], [planner.id, Infinity])

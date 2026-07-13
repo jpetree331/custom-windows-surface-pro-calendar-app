@@ -56,6 +56,8 @@ export interface Block {
   z: number;
   /** Text content for text/task blocks. */
   content: string;
+  /** Text color for text/task blocks (defaults to ink black). */
+  color?: string;
   /** Image bytes for image blocks (stored as Blob in IndexedDB). */
   imageBlob?: Blob;
   /** Task blocks only. */

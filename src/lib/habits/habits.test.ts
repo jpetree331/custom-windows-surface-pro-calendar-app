@@ -49,10 +49,35 @@ describe("habits", () => {
 });
 
 describe("categories", () => {
-  it("seeds starters once, idempotently", async () => {
+  it("seeds Jo's 7 starters once, idempotently", async () => {
     await ensureStarterCategories(PLANNER_ID);
     await ensureStarterCategories(PLANNER_ID);
-    expect(await db.categories.where("plannerId").equals(PLANNER_ID).count()).toBe(5);
+    const cats = await db.categories.where("plannerId").equals(PLANNER_ID).sortBy("order");
+    expect(cats).toHaveLength(7);
+    expect(cats[0]).toMatchObject({ name: "Appointments", color: "#3DC9FD" });
+    expect(cats[6]).toMatchObject({ name: "Misc.", color: "#000000" });
+  });
+
+  it("upgrades an untouched legacy starter set, but never touches edited ones", async () => {
+    // simulate a device seeded before Jo's palette existed
+    const legacy = [
+      { name: "Family", color: "#3fa9f5" }, { name: "Business", color: "#6dbb3c" },
+      { name: "Health", color: "#f2599a" }, { name: "Home", color: "#f28d49" },
+      { name: "Fun", color: "#8348c9" },
+    ];
+    await db.categories.bulkAdd(legacy.map((s, i) => ({
+      id: `legacy${i}`, plannerId: PLANNER_ID, name: s.name, color: s.color, order: i,
+    })));
+    await ensureStarterCategories(PLANNER_ID);
+    const cats = await db.categories.where("plannerId").equals(PLANNER_ID).toArray();
+    expect(cats).toHaveLength(7);
+    expect(cats.some((c) => c.name === "Appointments")).toBe(true);
+
+    // edited sets are left alone
+    await db.categories.clear();
+    await db.categories.add({ id: "mine", plannerId: PLANNER_ID, name: "My Thing", color: "#111111", order: 0 });
+    await ensureStarterCategories(PLANNER_ID);
+    expect(await db.categories.where("plannerId").equals(PLANNER_ID).count()).toBe(1);
   });
 
   it("add / rename / recolor propagate; delete untags blocks", async () => {

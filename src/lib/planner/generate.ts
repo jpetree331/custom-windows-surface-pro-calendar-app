@@ -63,25 +63,47 @@ export function buildPages(plannerId: string, year: number): Page[] {
   return pages;
 }
 
-/** Create the planner + all pages on first run (idempotent). */
-export async function ensurePlannerSeeded(): Promise<Planner> {
-  return db.transaction("rw", db.planners, db.pages, async () => {
-    let planner = await db.planners.where("year").equals(PLANNER_YEAR).first();
-    if (!planner) {
-      planner = {
+/** Create a year's planner + all pages on first run (idempotent per year). */
+export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<Planner> {
+  const planner = await db.transaction("rw", db.planners, db.pages, async () => {
+    let p = await db.planners.where("year").equals(year).first();
+    const isNew = !p;
+    if (!p) {
+      p = {
         id: crypto.randomUUID(),
-        year: PLANNER_YEAR,
-        title: `Jo's Planner '${String(PLANNER_YEAR).slice(2)}`,
+        year,
+        title: `Jo's Planner '${String(year).slice(2)}`,
         settings: {},
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      await db.planners.add(planner);
+      await db.planners.add(p);
     }
-    const pageCount = await db.pages.where("plannerId").equals(planner.id).count();
+    const pageCount = await db.pages.where("plannerId").equals(p.id).count();
     if (pageCount === 0) {
-      await db.pages.bulkAdd(buildPages(planner.id, PLANNER_YEAR));
+      await db.pages.bulkAdd(buildPages(p.id, year));
     }
-    return planner;
+    return { ...p, __isNew: isNew } as Planner & { __isNew: boolean };
   });
+
+  // A brand-new later year inherits categories + active habits from the most
+  // recent earlier planner, so 2027 starts set up the way Jo left 2026.
+  if ((planner as Planner & { __isNew: boolean }).__isNew) {
+    const previous = (await db.planners.where("year").below(year).toArray())
+      .sort((a, b) => b.year - a.year)[0];
+    if (previous) {
+      const [cats, habits] = await Promise.all([
+        db.categories.where("plannerId").equals(previous.id).toArray(),
+        db.habits.where("plannerId").equals(previous.id).toArray(),
+      ]);
+      await db.categories.bulkAdd(
+        cats.map((c) => ({ ...c, id: crypto.randomUUID(), plannerId: planner.id }))
+      );
+      await db.habits.bulkAdd(
+        habits.filter((h) => h.active).map((h) => ({ ...h, id: crypto.randomUUID(), plannerId: planner.id }))
+      );
+    }
+  }
+  const { __isNew: _, ...clean } = planner as Planner & { __isNew: boolean };
+  return clean;
 }

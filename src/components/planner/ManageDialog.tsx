@@ -11,9 +11,11 @@ import BackupPanel from "./BackupPanel";
 /** Settings dialog: manage habits (daily/weekly) and color categories. */
 export default function ManageDialog({
   plannerId,
+  year,
   onClose,
 }: {
   plannerId: string;
+  year: number;
   onClose: () => void;
 }) {
   const habits = useLiveQuery(
@@ -148,7 +150,7 @@ export default function ManageDialog({
           </button>
         </form>
 
-        <GooglePanel plannerId={plannerId} />
+        <GooglePanel plannerId={plannerId} year={year} />
         <BackupPanel />
       </div>
     </div>

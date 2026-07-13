@@ -1,12 +1,16 @@
+"use client";
+
 import type { Page } from "@/lib/db/types";
 import { DAY_ABBR, daysInMonth, firstDowOfMonth } from "@/lib/planner/dates";
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame from "./PageFrame";
 import EventChips from "../EventChips";
+import { usePlannerUI } from "../ui-context";
 
 /** Month page: Mon-start grid with blue date numbers. */
 export default function MonthPage({ page }: { page: Page }) {
+  const ui = usePlannerUI();
   const year = (page.meta.year as number) ?? new Date().getFullYear();
   const m = page.monthIndex;
   const lead = firstDowOfMonth(year, m);
@@ -54,9 +58,18 @@ export default function MonthPage({ page }: { page: Page }) {
               {day && (
                 <div className="flex h-full flex-col">
                   <div className="flex items-start justify-between">
-                    <span className="font-bold leading-none" style={{ fontSize: "2.2cqw", color: "#3fa9f5" }}>
+                    {/* Sits above the ink canvas (z-10): a pen tap on the
+                        number NAVIGATES to that day's week page, not draws. */}
+                    <button
+                      data-day-jump={isoOf(day)}
+                      title="Go to this week"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => ui.jumpToDate(isoOf(day))}
+                      className="pointer-events-auto relative z-10 cursor-pointer rounded font-bold leading-none hover:bg-white/60 active:bg-white/80"
+                      style={{ fontSize: "2.2cqw", color: "#3fa9f5" }}
+                    >
                       {day}
-                    </span>
+                    </button>
                     {moons.get(isoOf(day)) && (
                       <span style={{ fontSize: "1.6cqw" }} title={moons.get(isoOf(day))!.name}>
                         {moons.get(isoOf(day))!.glyph}

@@ -2,19 +2,33 @@ import { db } from "@/lib/db/db";
 import type { Category } from "@/lib/db/types";
 import { queueSync } from "@/lib/sync";
 
-/** Starter set — fully editable (Gate-free per the plan). */
+/** Starter set = Jo's category color system (fully editable in ⚙). */
 const STARTERS: { name: string; color: string }[] = [
-  { name: "Family", color: "#3fa9f5" },
-  { name: "Business", color: "#6dbb3c" },
-  { name: "Health", color: "#f2599a" },
-  { name: "Home", color: "#f28d49" },
-  { name: "Fun", color: "#8348c9" },
+  { name: "Appointments", color: "#3DC9FD" },
+  { name: "To-Do List", color: "#7400B3" },
+  { name: "Cleaning Chores", color: "#78B13B" },
+  { name: "Business Stuff", color: "#D50404" },
+  { name: "Birthdays", color: "#FF9B24" },
+  { name: "Holidays", color: "#FF5CB9" },
+  { name: "Misc.", color: "#000000" },
 ];
 
-/** Seed starter categories once per planner. */
+/** The pre-Jo starter set — recognized so an untouched install auto-upgrades. */
+const LEGACY_STARTERS = new Set([
+  "Family|#3fa9f5", "Business|#6dbb3c", "Health|#f2599a", "Home|#f28d49", "Fun|#8348c9",
+]);
+
+/** Seed starter categories once per planner (upgrading untouched legacy sets). */
 export async function ensureStarterCategories(plannerId: string) {
-  const count = await db.categories.where("plannerId").equals(plannerId).count();
-  if (count > 0) return;
+  const existing = await db.categories.where("plannerId").equals(plannerId).toArray();
+  if (existing.length > 0) {
+    const untouchedLegacy =
+      existing.length === LEGACY_STARTERS.size &&
+      existing.every((c) => LEGACY_STARTERS.has(`${c.name}|${c.color}`));
+    if (!untouchedLegacy) return;
+    await db.categories.bulkDelete(existing.map((c) => c.id));
+    for (const c of existing) await queueSync("categories", c.id, "delete");
+  }
   const rows: Category[] = STARTERS.map((s, i) => ({
     id: crypto.randomUUID(),
     plannerId,

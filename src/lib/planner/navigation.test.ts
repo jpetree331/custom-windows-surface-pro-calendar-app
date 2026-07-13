@@ -1,5 +1,7 @@
+import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
-import { buildPages } from "./generate";
+import { db } from "@/lib/db/db";
+import { buildPages, ensurePlannerSeeded } from "./generate";
 import { currentWeekPageIndex } from "./navigation";
 
 describe("currentWeekPageIndex (the ✱ Current Week button)", () => {
@@ -39,5 +41,43 @@ describe("currentWeekPageIndex (the ✱ Current Week button)", () => {
       expect(pages[i].type).toBe("week");
       expect(pages[i].dateStart <= iso && iso <= pages[i].dateEnd).toBe(true);
     }
+  });
+});
+
+describe("multi-year rollover (Start 2027)", () => {
+  it("creates the next year's planner with correct week structure and inherits categories + active habits", async () => {
+    await Promise.all(db.tables.map((t) => t.clear()));
+    const p26 = await ensurePlannerSeeded(2026);
+    await db.categories.add({ id: "c1", plannerId: p26.id, name: "Appointments", color: "#3DC9FD", order: 0 });
+    await db.habits.bulkAdd([
+      { id: "h1", plannerId: p26.id, name: "Walk", cadence: "daily", order: 0, active: true },
+      { id: "h2", plannerId: p26.id, name: "Old", cadence: "daily", order: 1, active: false },
+    ]);
+
+    const p27 = await ensurePlannerSeeded(2027);
+    expect(p27.year).toBe(2027);
+    expect(p27.id).not.toBe(p26.id);
+
+    const pages27 = await db.pages.where("plannerId").equals(p27.id).sortBy("index");
+    // 2027 starts on a Friday → 52 ISO weeks → 78 pages
+    expect(pages27.filter((p) => p.type === "week")).toHaveLength(52);
+    // Jan 1 2027 falls in 2026's ISO week 53, so 2027's week 1 starts Jan 4
+    const w1 = pages27.find((p) => p.type === "week")!;
+    expect(w1.dateStart).toBe("2027-01-04");
+
+    // inherited setup: categories copied, only ACTIVE habits carried over
+    const cats27 = await db.categories.where("plannerId").equals(p27.id).toArray();
+    expect(cats27.map((c) => c.name)).toEqual(["Appointments"]);
+    const habits27 = await db.habits.where("plannerId").equals(p27.id).toArray();
+    expect(habits27.map((h) => h.name)).toEqual(["Walk"]);
+
+    // idempotent: calling again neither duplicates pages nor re-copies
+    const again = await ensurePlannerSeeded(2027);
+    expect(again.id).toBe(p27.id);
+    expect(await db.pages.where("plannerId").equals(p27.id).count()).toBe(pages27.length);
+    expect(await db.habits.where("plannerId").equals(p27.id).count()).toBe(1);
+
+    // 2026 planner untouched
+    expect(await db.pages.where("plannerId").equals(p26.id).count()).toBe(79);
   });
 });

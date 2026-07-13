@@ -10,7 +10,8 @@ export type HistoryEntry =
   | { kind: "addBlock"; block: Block }
   | { kind: "deleteBlock"; block: Block }
   | { kind: "updateBlock"; before: Block; after: Block }
-  | { kind: "duplicatePage"; page: Page; strokes: Stroke[]; blocks: Block[] };
+  | { kind: "duplicatePage"; page: Page; strokes: Stroke[]; blocks: Block[] }
+  | { kind: "deletePage"; page: Page; strokes: Stroke[]; blocks: Block[] };
 
 const MAX = 200;
 let undoStack: HistoryEntry[] = [];
@@ -64,7 +65,10 @@ async function apply(entry: HistoryEntry, dir: "undo" | "redo") {
       await queueSync("blocks", entry.after.id, "put");
       break;
     case "duplicatePage":
-      if (fwd) {
+    case "deletePage": {
+      // deletePage is duplicatePage mirrored: its redo REMOVES the page.
+      const insert = entry.kind === "duplicatePage" ? fwd : !fwd;
+      if (insert) {
         await db.transaction("rw", db.pages, db.strokes, db.blocks, async () => {
           await db.pages
             .where("plannerId").equals(entry.page.plannerId)
@@ -85,8 +89,9 @@ async function apply(entry: HistoryEntry, dir: "undo" | "redo") {
             .modify((p) => { p.index -= 1; });
         });
       }
-      await queueSync("pages", entry.page.id, fwd ? "put" : "delete");
+      await queueSync("pages", entry.page.id, insert ? "put" : "delete");
       break;
+    }
   }
 }
 

@@ -9,15 +9,18 @@ export type ToolId =
   | "rect"
   | "image";
 
-/** Pen colors + widths as labeled on the Drawboard toolbar (1 / 1.5 pt). */
+/**
+ * Pen palette = Jo's category color system (her exact hex codes). Each slot's
+ * color/width can be customized in the toolbar; these are the defaults.
+ */
 export const PEN_COLORS: { color: string; width: number; name: string }[] = [
-  { color: "#29abe2", width: 1, name: "blue" },
-  { color: "#8348c9", width: 1, name: "purple" },
-  { color: "#5a9e32", width: 1, name: "green" },
-  { color: "#d92b2b", width: 1, name: "red" },
-  { color: "#f7931e", width: 1.5, name: "orange" },
-  { color: "#ec4899", width: 1.5, name: "pink" },
-  { color: "#1a1a1a", width: 1.5, name: "black" },
+  { color: "#3DC9FD", width: 1, name: "Appointments" },
+  { color: "#7400B3", width: 1, name: "To-Do List" },
+  { color: "#78B13B", width: 1, name: "Cleaning Chores" },
+  { color: "#D50404", width: 1, name: "Business Stuff" },
+  { color: "#FF9B24", width: 1.5, name: "Birthdays" },
+  { color: "#FF5CB9", width: 1.5, name: "Holidays" },
+  { color: "#000000", width: 1.5, name: "Misc." },
 ];
 
 /** pt → logical page units (page is 1000 units wide ≈ an 8.5" sheet ≈ 612pt). */
