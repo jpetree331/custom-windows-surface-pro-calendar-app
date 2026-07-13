@@ -66,16 +66,18 @@ export default function PlannerShell() {
   const [viewSettings, setViewSettings] = useState<ViewSettings>(DEFAULT_VIEW_SETTINGS);
   const [singleIndex, setSingleIndex] = useState(0);
   const [feedBox, setFeedBox] = useState({ w: 0, h: 0 });
-  const feedRef = useRef<HTMLDivElement>(null);
+  // Callback ref, NOT a plain ref: the feed div mounts AFTER the "Preparing…"
+  // guard clears, so effects keyed on planner would run too early and never
+  // see the element. State-as-ref re-fires the effects exactly on mount.
+  const [feedEl, setFeedEl] = useState<HTMLDivElement | null>(null);
   useEffect(() => setViewSettings(loadViewSettings()), []);
   useEffect(() => {
-    const el = feedRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setFeedBox({ w: el.clientWidth, h: el.clientHeight }));
-    ro.observe(el);
-    setFeedBox({ w: el.clientWidth, h: el.clientHeight });
+    if (!feedEl) return;
+    const ro = new ResizeObserver(() => setFeedBox({ w: feedEl.clientWidth, h: feedEl.clientHeight }));
+    ro.observe(feedEl);
+    setFeedBox({ w: feedEl.clientWidth, h: feedEl.clientHeight });
     return () => ro.disconnect();
-  }, [planner]);
+  }, [feedEl]);
 
   const [allYears, setAllYears] = useState<number[]>([]);
   const loadYearSeq = useRef(0);
@@ -143,6 +145,62 @@ export default function PlannerShell() {
     if (page.monthIndex >= 0) setActiveMonth(page.monthIndex);
     setCurrentPageId(page.id);
   }, []);
+
+  // Route pinch + Ctrl+wheel over the planner into the APP zoom, so the month
+  // tabs and toolbar never scroll away (browser viewport zoom would hide them).
+  useEffect(() => {
+    const el = feedEl;
+    if (!el) return;
+    let pinchBase: { dist: number; zoom: number } | null = null;
+    const clamp = (z: number) => Math.min(3, Math.max(0.5, Math.round(z * 20) / 20));
+    const applyZoom = (zoom: number, persist: boolean) => {
+      if (zoom !== viewSettingsRef.current.zoom) {
+        const next = { ...viewSettingsRef.current, zoom };
+        setViewSettings(next);
+        if (persist) saveViewSettings(next);
+      } else if (persist) {
+        saveViewSettings(viewSettingsRef.current);
+      }
+    };
+    const dist = (t: TouchList) =>
+      Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchBase = { dist: dist(e.touches), zoom: viewSettingsRef.current.zoom };
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length < 2) return;
+      e.preventDefault(); // stop the browser from pinch-zooming the viewport
+      if (!pinchBase) pinchBase = { dist: dist(e.touches), zoom: viewSettingsRef.current.zoom };
+      applyZoom(clamp(pinchBase.zoom * (dist(e.touches) / pinchBase.dist)), false);
+    };
+    const onTouchEnd = () => {
+      if (pinchBase) {
+        pinchBase = null;
+        saveViewSettings(viewSettingsRef.current);
+      }
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return; // trackpad pinch + Ctrl+wheel arrive as ctrl+wheel
+      e.preventDefault();
+      applyZoom(clamp(viewSettingsRef.current.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)), true);
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, [feedEl]);
 
   const changeViewSettings = useCallback(
     (s: ViewSettings) => {
@@ -377,7 +435,7 @@ export default function PlannerShell() {
           onSwitchYear={(y) => void loadYear(y)}
           onCreateYear={(y) => void loadYear(y)}
         />
-        <div ref={feedRef} className="relative min-h-0 flex-1 bg-slate-400/60">
+        <div ref={setFeedEl} className="relative min-h-0 flex-1 bg-slate-400/60">
           <SideButtons onJump={jumpToTarget} />
           {viewSettings.layout === "single" ? (
             <SinglePageFeed

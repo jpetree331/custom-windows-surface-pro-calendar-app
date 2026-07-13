@@ -76,7 +76,10 @@ export default function Toolbar({
   );
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-t border-slate-300 bg-white px-2 shadow-[0_-2px_6px_rgba(0,0,0,0.08)]">
+    <div
+      className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-t border-slate-300 bg-white px-2 shadow-[0_-2px_6px_rgba(0,0,0,0.08)]"
+      style={{ touchAction: "manipulation" }}
+    >
       {toolBtn("select", "🖐", "Select / move blocks")}
       <span className="mx-1 h-6 w-px bg-slate-300" />
       {palette.map((p, i) => {

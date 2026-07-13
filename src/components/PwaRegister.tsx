@@ -13,9 +13,19 @@ import { autoDriveBackup } from "@/lib/backup-auto";
 export default function PwaRegister() {
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch((err) => {
-        console.warn("Service worker registration failed:", err);
-      });
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker.register("/sw.js").catch((err) => {
+          console.warn("Service worker registration failed:", err);
+        });
+      } else {
+        // Dev: the SW's cache-first _next/static strategy serves STALE chunks
+        // (dev chunks aren't content-hashed). Unregister + purge so dev
+        // machines always run the code on disk.
+        void navigator.serviceWorker
+          .getRegistrations()
+          .then((regs) => Promise.all(regs.map((r) => r.unregister())));
+        void caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))));
+      }
     }
     void ensurePersistentStorage().then((granted) => {
       if (!granted) console.warn("Persistent storage not granted — data may be evicted under disk pressure.");

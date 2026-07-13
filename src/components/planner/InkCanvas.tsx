@@ -188,7 +188,8 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       data-ink-canvas={pageId}
       className="absolute inset-0 h-full w-full"
       style={{
-        touchAction: "pan-y pinch-zoom",
+        // pan only — pinch is handled by the app-level zoom (keeps chrome visible)
+        touchAction: "pan-x pan-y",
         pointerEvents: inkActive ? "auto" : "none",
         cursor: ui.tool === "eraser" ? "cell" : inkActive ? "crosshair" : "default",
       }}

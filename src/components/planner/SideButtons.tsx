@@ -5,7 +5,10 @@ import { SIDE_BUTTONS } from "@/lib/planner/constants";
 /** Right-edge jump buttons: ✱ Current Week, T, B, H, N, 🎂 (Gate C legend). */
 export default function SideButtons({ onJump }: { onJump: (target: string) => void }) {
   return (
-    <div className="pointer-events-none absolute right-1 top-12 z-20 flex flex-col gap-1.5">
+    <div
+      className="pointer-events-none absolute right-1 top-12 z-20 flex flex-col gap-1.5"
+      style={{ touchAction: "manipulation" }}
+    >
       {SIDE_BUTTONS.map((b) => (
         <button
           key={b.key}

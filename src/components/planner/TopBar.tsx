@@ -29,7 +29,10 @@ export default function TopBar({
   const [yearMenu, setYearMenu] = useState(false);
   const nextYear = Math.max(...years, activeYear) + 1;
   return (
-    <nav className="flex h-9 shrink-0 items-stretch gap-[2px] bg-slate-300/80 px-1 pt-1">
+    <nav
+      className="flex h-9 shrink-0 items-stretch gap-[2px] bg-slate-300/80 px-1 pt-1"
+      style={{ touchAction: "manipulation" }}
+    >
       {MONTH_ABBR.map((abbr, m) => (
         <button
           key={abbr}
