@@ -33,6 +33,18 @@ export default function Toolbar({
   // Per-slot palette customization (Jo's colors are the defaults).
   const [palette, setPalette] = useState(PEN_COLORS);
   const [editSlot, setEditSlot] = useState<number | null>(null);
+  // Popovers must be position:fixed — the toolbar's overflow-x-auto CLIPS
+  // anything absolutely positioned above it (they'd open invisibly).
+  const [editAnchor, setEditAnchor] = useState<{ left: number; bottom: number } | null>(null);
+  const [viewAnchor, setViewAnchor] = useState<{ right: number; bottom: number } | null>(null);
+  const anchorFor = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    return {
+      left: Math.min(Math.max(8, r.left + r.width / 2 - 88), window.innerWidth - 184),
+      right: Math.max(8, window.innerWidth - r.right),
+      bottom: window.innerHeight - r.top + 6,
+    };
+  };
   useEffect(() => {
     try {
       const saved = localStorage.getItem("jotter.palette");
@@ -89,9 +101,15 @@ export default function Toolbar({
             <button
               data-pen={p.name}
               title={`${p.name} (${p.width}pt) — tap again to change color/thickness`}
-              onClick={() => {
+              onClick={(e) => {
                 if (active) {
-                  setEditSlot(editSlot === i ? null : i); // second tap edits
+                  // second tap opens the color/thickness editor
+                  if (editSlot === i) {
+                    setEditSlot(null);
+                  } else {
+                    setEditAnchor(anchorFor(e.currentTarget));
+                    setEditSlot(i);
+                  }
                 } else {
                   ui.setTool("pen");
                   ui.setPen(p.color, p.width);
@@ -110,11 +128,18 @@ export default function Toolbar({
                 }}
               />
             </button>
-            {editSlot === i && (
-              <div
-                data-pen-editor={p.name}
-                className="absolute bottom-11 left-1/2 z-40 w-44 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
-              >
+            {editSlot === i && editAnchor && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  data-pen-editor-backdrop
+                  onClick={() => setEditSlot(null)}
+                />
+                <div
+                  data-pen-editor={p.name}
+                  className="fixed z-40 w-44 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+                  style={{ left: editAnchor.left, bottom: editAnchor.bottom }}
+                >
                 <div className="mb-1 text-xs font-bold text-slate-600">{p.name}</div>
                 <div className="mb-2 flex items-center gap-2">
                   <input
@@ -153,7 +178,8 @@ export default function Toolbar({
                     Done
                   </button>
                 </div>
-              </div>
+                </div>
+              </>
             )}
           </div>
         );
@@ -252,16 +278,22 @@ export default function Toolbar({
         <button
           data-action="view-menu"
           title="Layout options"
-          onClick={() => setViewMenu((v) => !v)}
+          onClick={(e) => {
+            if (!viewMenu) setViewAnchor(anchorFor(e.currentTarget));
+            setViewMenu((v) => !v);
+          }}
           className="flex h-9 items-center justify-center gap-1 rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
         >
           ⿹ View
         </button>
-        {viewMenu && (
-          <div
-            data-view-menu
-            className="absolute bottom-11 right-0 z-40 w-52 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
-          >
+        {viewMenu && viewAnchor && (
+          <>
+            <div className="fixed inset-0 z-30" data-view-menu-backdrop onClick={() => setViewMenu(false)} />
+            <div
+              data-view-menu
+              className="fixed z-40 w-52 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+              style={{ right: viewAnchor.right, bottom: viewAnchor.bottom }}
+            >
             <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Page layout</div>
             {(
               [
@@ -304,7 +336,8 @@ export default function Toolbar({
                 Done
               </button>
             </div>
-          </div>
+            </div>
+          </>
         )}
       </div>
       <button
