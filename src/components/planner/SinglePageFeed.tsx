@@ -122,8 +122,16 @@ export default function SinglePageFeed({
         style={{ touchAction: "pan-x pan-y" }}
         onWheel={onWheel}
       >
-        <div className="flex min-h-full items-start justify-center p-2 pr-12">
-          <div data-page-index={page.index} data-page-label={page.label} style={{ width: pw }}>
+        {/* shrink-0 + auto margins (NOT justify-center): a zoomed page must be
+            allowed to exceed the viewport and pan from its left edge — flex
+            shrink was silently re-fitting it (invisible zoom in portrait). */}
+        <div className="flex min-h-full items-start p-2 pr-12">
+          <div
+            className="mx-auto shrink-0"
+            data-page-index={page.index}
+            data-page-label={page.label}
+            style={{ width: pw }}
+          >
             {renderPage(page)}
           </div>
         </div>
