@@ -3,7 +3,7 @@ import type { Category } from "@/lib/db/types";
 import { queueSync } from "@/lib/sync";
 
 /** Starter set = Jo's category color system (fully editable in ⚙). */
-const STARTERS: { name: string; color: string }[] = [
+export const STARTERS: { name: string; color: string }[] = [
   { name: "Appointments", color: "#3DC9FD" },
   { name: "To-Do List", color: "#7400B3" },
   { name: "Cleaning Chores", color: "#78B13B" },

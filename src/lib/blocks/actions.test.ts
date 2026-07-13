@@ -214,6 +214,30 @@ describe("page copy / paste / delete (context menu)", () => {
   });
 });
 
+describe("year-scoped undo (Ctrl+Z never edits an inactive year)", () => {
+  beforeEach(seed);
+
+  it("undo is a no-op while another planner is active, works again after switching back", async () => {
+    const pages = await db.pages.toArray();
+    const wk = pages.find((p) => p.type === "week")!;
+
+    history.setActivePlanner("planner-2026");
+    await addBlock(makeTextBlock(wk.id, 1, 2, "on 2026"));
+    expect(history.canUndo()).toBe(true);
+
+    history.setActivePlanner("planner-2027");
+    expect(history.canUndo()).toBe(false);
+    await history.undo(); // must not touch the 2026 block
+    expect(await db.blocks.count()).toBe(1);
+
+    history.setActivePlanner("planner-2026");
+    expect(history.canUndo()).toBe(true);
+    await history.undo();
+    expect(await db.blocks.count()).toBe(0);
+    history.setActivePlanner(""); // reset for other tests
+  });
+});
+
 describe("stroke history", () => {
   beforeEach(seed);
 

@@ -179,6 +179,8 @@ export async function pastePageAfter(afterPageId: string): Promise<Page | null> 
     id: crypto.randomUUID(),
     plannerId: anchor.plannerId,
     index: anchor.index + 1,
+    // Copies keep dates for rendering but must never win date-based navigation.
+    meta: { ...src.page.meta, isCopy: true },
     updatedAt: Date.now(),
   };
   const strokes = src.strokes.map((s) => ({ ...s, id: crypto.randomUUID(), pageId: copy.id }));
@@ -268,6 +270,8 @@ export async function duplicatePage(pageId: string): Promise<Page | null> {
     id: crypto.randomUUID(),
     index: source.index + 1,
     label: `${source.label} (copy)`,
+    // Copies keep dates for rendering but must never win date-based navigation.
+    meta: { ...source.meta, isCopy: true },
     updatedAt: now,
   };
   const strokeCopies = strokes.map((s) => ({ ...s, id: crypto.randomUUID(), pageId: copy.id }));

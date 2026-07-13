@@ -6,7 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import type { Planner } from "@/lib/db/types";
 import { db } from "@/lib/db/db";
 import { ensurePlannerSeeded } from "@/lib/planner/generate";
-import { currentWeekPageIndex } from "@/lib/planner/navigation";
+import { currentWeekPageIndex, preferOriginalIndex } from "@/lib/planner/navigation";
 import { toISO } from "@/lib/planner/dates";
 import { PAGE_W, PAGE_H, PLANNER_YEAR } from "@/lib/planner/constants";
 import { PEN_COLORS, type ToolId } from "@/lib/ink/tools";
@@ -68,10 +68,6 @@ export default function PlannerShell() {
   const [feedBox, setFeedBox] = useState({ w: 0, h: 0 });
   const feedRef = useRef<HTMLDivElement>(null);
   useEffect(() => setViewSettings(loadViewSettings()), []);
-  const changeViewSettings = useCallback((s: ViewSettings) => {
-    setViewSettings(s);
-    saveViewSettings(s);
-  }, []);
   useEffect(() => {
     const el = feedRef.current;
     if (!el) return;
@@ -82,12 +78,17 @@ export default function PlannerShell() {
   }, [planner]);
 
   const [allYears, setAllYears] = useState<number[]>([]);
+  const loadYearSeq = useRef(0);
 
   const loadYear = useCallback(async (year: number) => {
+    const req = ++loadYearSeq.current;
     const p = await ensurePlannerSeeded(year);
     await ensureStarterCategories(p.id);
     const years = (await db.planners.toArray()).map((pl) => pl.year).sort();
+    // A newer loadYear superseded this one mid-flight — drop the stale result.
+    if (req !== loadYearSeq.current) return;
     localStorage.setItem("jotter.activeYear", String(year));
+    history.setActivePlanner(p.id);
     setAllYears(years);
     setPlanner(p);
   }, []);
@@ -143,6 +144,23 @@ export default function PlannerShell() {
     setCurrentPageId(page.id);
   }, []);
 
+  const changeViewSettings = useCallback(
+    (s: ViewSettings) => {
+      // Keep the reader's place when flipping Single ↔ Continuous.
+      if (s.layout !== viewSettingsRef.current.layout) {
+        const pid = viewportCenterPageId();
+        const i = pagesRef.current.findIndex((p) => p.id === pid);
+        if (i >= 0) {
+          setSingleIndex(i); // single mode shows it; continuous mounts at it
+          syncPagePosition(i);
+        }
+      }
+      setViewSettings(s);
+      saveViewSettings(s);
+    },
+    [viewportCenterPageId, syncPagePosition]
+  );
+
   const jumpToIndex = useCallback(
     (index: number) => {
       if (viewSettingsRef.current.layout === "single") {
@@ -157,6 +175,7 @@ export default function PlannerShell() {
 
   const ui = useMemo<PlannerUI>(
     () => ({
+      plannerId: planner?.id ?? "",
       tool,
       penColor,
       penWidth,
@@ -176,12 +195,15 @@ export default function PlannerShell() {
         if (scrollerEl.current) scrollerEl.current.style.touchAction = active ? "none" : "";
       },
     }),
-    [tool, penColor, penWidth, selectedBlockId, currentPageId, jumpToIndex]
+    [planner?.id, tool, penColor, penWidth, selectedBlockId, currentPageId, jumpToIndex]
   );
 
   const jumpToMonth = useCallback(
     (m: number) => {
-      const i = pagesRef.current.findIndex((p) => p.type === "month" && p.monthIndex === m);
+      const i = preferOriginalIndex(
+        pagesRef.current,
+        (p) => p.type === "month" && p.monthIndex === m
+      );
       if (i >= 0) jumpToIndex(i);
     },
     [jumpToIndex]
@@ -200,7 +222,8 @@ export default function PlannerShell() {
         jumpToIndex(currentWeekIndex());
         return;
       }
-      const i = pagesRef.current.findIndex(
+      const i = preferOriginalIndex(
+        pagesRef.current,
         (p) => p.type === "section" && p.meta.sectionKey === target
       );
       if (i >= 0) jumpToIndex(i);
@@ -229,7 +252,10 @@ export default function PlannerShell() {
   useEffect(() => {
     const isTyping = () => {
       const el = document.activeElement as HTMLElement | null;
-      return !!el && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+      return (
+        !!el &&
+        (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))
+      );
     };
 
     const onPaste = (e: ClipboardEvent) => {
@@ -361,6 +387,9 @@ export default function PlannerShell() {
                 setSingleIndex(i);
                 syncPagePosition(i);
               }}
+              scrollerRef={(el) => {
+                scrollerEl.current = el;
+              }}
               settings={viewSettings}
               renderPage={(page) => (
                 <div
@@ -388,6 +417,7 @@ export default function PlannerShell() {
               }}
               data={pages}
               computeItemKey={(_, page) => page.id}
+              initialTopMostItemIndex={singleIndex}
               increaseViewportBy={{ top: 800, bottom: 800 }}
               rangeChanged={onRangeChanged}
               itemContent={(_, page) => (

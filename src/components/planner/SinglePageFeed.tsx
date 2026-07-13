@@ -19,12 +19,15 @@ export default function SinglePageFeed({
   onIndexChange,
   settings,
   renderPage,
+  scrollerRef,
 }: {
   pages: Page[];
   index: number;
   onIndexChange: (i: number) => void;
   settings: ViewSettings;
   renderPage: (page: Page) => ReactNode;
+  /** Exposes the scrollable host so palm rejection can lock touch-action. */
+  scrollerRef?: (el: HTMLElement | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -81,7 +84,18 @@ export default function SinglePageFeed({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = document.activeElement as HTMLElement | null;
-      if (el && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (
+        el &&
+        (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))
+      )
+        return;
+      // Never flip the page underneath an open dialog or menu.
+      if (
+        document.querySelector(
+          "[data-manage-dialog], [data-add-page-dialog], [data-page-context-menu]"
+        )
+      )
+        return;
       if (e.key === "PageDown" || e.key === "ArrowRight") {
         e.preventDefault();
         flip(1);
@@ -100,7 +114,10 @@ export default function SinglePageFeed({
   return (
     <div className="relative h-full w-full" data-single-feed>
       <div
-        ref={hostRef}
+        ref={(el) => {
+          hostRef.current = el;
+          scrollerRef?.(el);
+        }}
         className="h-full w-full overflow-auto"
         style={{ touchAction: "pan-x pan-y" }}
         onWheel={onWheel}

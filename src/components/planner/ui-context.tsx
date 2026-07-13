@@ -4,6 +4,8 @@ import { createContext, useContext } from "react";
 import type { ToolId } from "@/lib/ink/tools";
 
 export interface PlannerUI {
+  /** Active year's planner — scopes event queries and page actions. */
+  plannerId: string;
   tool: ToolId;
   penColor: string;
   penWidth: number;

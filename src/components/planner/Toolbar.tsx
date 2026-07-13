@@ -38,11 +38,16 @@ export default function Toolbar({
       const saved = localStorage.getItem("jotter.palette");
       if (saved) {
         const rows = JSON.parse(saved) as { color: string; width: number }[];
-        setPalette(PEN_COLORS.map((p, i) => ({ ...p, ...rows[i] })));
+        const merged = PEN_COLORS.map((p, i) => ({ ...p, ...rows[i] }));
+        setPalette(merged);
+        // Seed the shared pen state too, or the first stroke after a reload
+        // draws in the factory default instead of the customized slot 1.
+        ui.setPen(merged[0].color, merged[0].width);
       }
     } catch {
       // corrupted palette — defaults win
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const updateSlot = (i: number, patch: { color?: string; width?: number }) => {
     setPalette((prev) => {

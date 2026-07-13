@@ -3,6 +3,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/db";
 import type { PlannerEvent } from "@/lib/db/types";
+import { usePlannerUI } from "./ui-context";
 
 /** Colored event/birthday chips for one day cell (week + month templates). */
 export default function EventChips({
@@ -12,9 +13,16 @@ export default function EventChips({
   dayISO: string;
   compact?: boolean;
 }) {
+  const { plannerId } = usePlannerUI();
   const events = useLiveQuery(
-    () => db.events.where("date").equals(dayISO).toArray(),
-    [dayISO]
+    // planner-scoped: a restored backup can leave a second same-year planner
+    () =>
+      db.events
+        .where("date")
+        .equals(dayISO)
+        .and((e) => e.plannerId === plannerId)
+        .toArray(),
+    [dayISO, plannerId]
   );
   const categories = useLiveQuery(() => db.categories.toArray(), []) ?? [];
   if (!events || events.length === 0) return null;

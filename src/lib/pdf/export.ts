@@ -14,7 +14,7 @@ import { db } from "@/lib/db/db";
 import type { Block, Habit, HabitCheck, Page, PlannerEvent, Stroke } from "@/lib/db/types";
 import { PAGE_W, PAGE_H, SECTIONS, SIDE_BUTTONS, HABIT_REGION } from "@/lib/planner/constants";
 import { MONTH_ABBR, MONTH_NAMES, DAY_ABBR, addDays, fromISO, toISO, daysInMonth, firstDowOfMonth } from "@/lib/planner/dates";
-import { currentWeekPageIndex } from "@/lib/planner/navigation";
+import { currentWeekPageIndex, preferOriginalIndex } from "@/lib/planner/navigation";
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import { PT_TO_UNITS, HIGHLIGHTER_OPACITY } from "@/lib/ink/tools";
@@ -97,13 +97,13 @@ function chromeLinks(ctx: Ctx): { draw: (page: PDFPage) => void; links: LinkSpec
   const links: LinkSpec[] = [];
   const tabW = (PAGE_W - 60) / 12;
   const monthTargets = MONTH_ABBR.map((_, m) =>
-    ctx.pages.findIndex((p) => p.type === "month" && p.monthIndex === m)
+    preferOriginalIndex(ctx.pages, (p) => p.type === "month" && p.monthIndex === m)
   );
   // NOTE: a static PDF can't recompute dates — ✱ links to the week containing
   // the EXPORT date. The in-app button always recomputes live.
   const weekTarget = currentWeekPageIndex(ctx.pages, ctx.todayISO);
   const sectionTarget = (key: string) =>
-    ctx.pages.findIndex((p) => p.type === "section" && p.meta.sectionKey === key);
+    preferOriginalIndex(ctx.pages, (p) => p.type === "section" && p.meta.sectionKey === key);
 
   // Precompute link rects (same on every page).
   for (let m = 0; m < 12; m++) {
@@ -573,9 +573,11 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
   if (pages.length === 0) throw new Error("Nothing to export");
 
   const [strokes, blocks, events, categories, habits, checks] = await Promise.all([
-    db.strokes.toArray(),
+    db.strokes.toArray(), // grouped by globally-unique pageId — safe unfiltered
     db.blocks.toArray(),
-    db.events.toArray(),
+    // eventsByDate is keyed by date string, so events MUST be planner-scoped
+    // (a restored backup can leave a second planner for the same year).
+    db.events.where("plannerId").equals(planner.id).toArray(),
     db.categories.toArray(),
     db.habits.where("plannerId").equals(planner.id).sortBy("order"),
     db.habitChecks.toArray(),

@@ -14,8 +14,14 @@ export type HistoryEntry =
   | { kind: "deletePage"; page: Page; strokes: Stroke[]; blocks: Block[] };
 
 const MAX = 200;
-let undoStack: HistoryEntry[] = [];
-let redoStack: HistoryEntry[] = [];
+interface ScopedEntry {
+  entry: HistoryEntry;
+  /** Planner the mutation happened on — undo/redo only touch the active year. */
+  plannerId: string;
+}
+let undoStack: ScopedEntry[] = [];
+let redoStack: ScopedEntry[] = [];
+let activePlannerId = "";
 const listeners = new Set<() => void>();
 
 export function onHistoryChange(fn: () => void): () => void {
@@ -24,12 +30,25 @@ export function onHistoryChange(fn: () => void): () => void {
 }
 const notify = () => listeners.forEach((fn) => fn());
 
-export function canUndo() { return undoStack.length > 0; }
-export function canRedo() { return redoStack.length > 0; }
+/** Ctrl+Z must never silently edit a year the user isn't looking at. */
+export function setActivePlanner(id: string) {
+  activePlannerId = id;
+  notify();
+}
 
-/** Record an already-applied mutation. */
+const lastActiveIndex = (stack: ScopedEntry[]) => {
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i].plannerId === activePlannerId) return i;
+  }
+  return -1;
+};
+
+export function canUndo() { return lastActiveIndex(undoStack) >= 0; }
+export function canRedo() { return lastActiveIndex(redoStack) >= 0; }
+
+/** Record an already-applied mutation (attributed to the active planner). */
 export function push(entry: HistoryEntry) {
-  undoStack.push(entry);
+  undoStack.push({ entry, plannerId: activePlannerId });
   if (undoStack.length > MAX) undoStack.shift();
   redoStack = [];
   notify();
@@ -96,17 +115,19 @@ async function apply(entry: HistoryEntry, dir: "undo" | "redo") {
 }
 
 export async function undo() {
-  const entry = undoStack.pop();
-  if (!entry) return;
-  await apply(entry, "undo");
-  redoStack.push(entry);
+  const i = lastActiveIndex(undoStack);
+  if (i < 0) return;
+  const [scoped] = undoStack.splice(i, 1);
+  await apply(scoped.entry, "undo");
+  redoStack.push(scoped);
   notify();
 }
 
 export async function redo() {
-  const entry = redoStack.pop();
-  if (!entry) return;
-  await apply(entry, "redo");
-  undoStack.push(entry);
+  const i = lastActiveIndex(redoStack);
+  if (i < 0) return;
+  const [scoped] = redoStack.splice(i, 1);
+  await apply(scoped.entry, "redo");
+  undoStack.push(scoped);
   notify();
 }

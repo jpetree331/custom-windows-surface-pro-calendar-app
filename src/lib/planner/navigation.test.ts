@@ -44,10 +44,40 @@ describe("currentWeekPageIndex (the ✱ Current Week button)", () => {
   });
 });
 
+describe("duplicated pages never steal date-based navigation", () => {
+  it("✱ targets the original week even when a copy sits earlier in the feed", async () => {
+    const base = buildPages("pnav", 2026);
+    const wkIdx = base.findIndex((p) => p.dateStart === "2026-07-06");
+    const copy = {
+      ...base[wkIdx],
+      id: "copy1",
+      index: wkIdx, // copy placed BEFORE the original
+      meta: { ...base[wkIdx].meta, isCopy: true },
+    };
+    const withCopy = [...base.slice(0, wkIdx), copy, ...base.slice(wkIdx)].map((p, i) => ({
+      ...p,
+      index: i,
+    }));
+    const i = currentWeekPageIndex(withCopy, "2026-07-08");
+    expect(withCopy[i].id).toBe(base[wkIdx].id); // original wins
+    expect(withCopy[i].meta.isCopy).toBeUndefined();
+  });
+});
+
 describe("multi-year rollover (Start 2027)", () => {
+  it("first-ever planner atomically seeds Jo's starter categories", async () => {
+    await Promise.all(db.tables.map((t) => t.clear()));
+    const p26 = await ensurePlannerSeeded(2026);
+    const cats = await db.categories.where("plannerId").equals(p26.id).sortBy("order");
+    expect(cats).toHaveLength(7);
+    expect(cats[0].name).toBe("Appointments");
+  });
+
   it("creates the next year's planner with correct week structure and inherits categories + active habits", async () => {
     await Promise.all(db.tables.map((t) => t.clear()));
     const p26 = await ensurePlannerSeeded(2026);
+    // simulate Jo having customized 2026 down to a single category
+    await db.categories.where("plannerId").equals(p26.id).delete();
     await db.categories.add({ id: "c1", plannerId: p26.id, name: "Appointments", color: "#3DC9FD", order: 0 });
     await db.habits.bulkAdd([
       { id: "h1", plannerId: p26.id, name: "Walk", cadence: "daily", order: 0, active: true },
