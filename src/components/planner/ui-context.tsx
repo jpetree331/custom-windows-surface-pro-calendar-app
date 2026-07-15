@@ -15,6 +15,8 @@ export interface AreaSelection {
 export interface PlannerUI {
   /** Active year's planner — scopes event queries and page actions. */
   plannerId: string;
+  /** Active planner year (for templates that print it, e.g. Birthdays). */
+  year: number;
   tool: ToolId;
   penColor: string;
   penWidth: number;

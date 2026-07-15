@@ -453,10 +453,84 @@ function drawYear(ctx: Ctx, page: PDFPage, p: Page) {
 }
 
 function drawSection(ctx: Ctx, page: PDFPage, p: Page) {
+  if (p.meta.sectionKey === "birthdays") {
+    drawBirthdays(ctx, page);
+    return;
+  }
   const text = safe(p.label);
   const w = ctx.bold.widthOfTextAtSize(text, 12) + 16;
   page.drawRectangle({ x: px(INSET), y: py(TAB_H + 30), width: w, height: 17, color: hex("#a8c8ee"), opacity: 0.85 });
   page.drawText(text, { x: px(INSET) + 8, y: py(TAB_H + 30) + 4, size: 12, font: ctx.bold, color: INK_BLACK });
+}
+
+/** Jo's fill-in-the-blanks birthdays layout: header + 3×4 ruled month grid. */
+function drawBirthdays(ctx: Ctx, page: PDFPage) {
+  const LINES = 9;
+  const x0 = INSET;
+  const y0 = TAB_H + 18; // logical top
+  const x1 = PAGE_W - INSET;
+  const y1 = PAGE_H - INSET;
+  const headerH = 88;
+  const line = (fx: number, fy: number, tx: number, ty: number, wpt: number, color = INK_BLACK) =>
+    page.drawLine({ start: { x: px(fx), y: py(fy) }, end: { x: px(tx), y: py(ty) }, thickness: wpt, color });
+
+  page.drawRectangle({
+    x: px(x0), y: py(y1), width: (x1 - x0) * S, height: (y1 - y0) * S,
+    color: rgb(1, 1, 1), opacity: 0.55,
+  });
+  // outer frame + header rule
+  line(x0, y0, x1, y0, 1.6); line(x0, y1, x1, y1, 1.6);
+  line(x0, y0, x0, y1, 1.6); line(x1, y0, x1, y1, 1.6);
+  line(x0, y0 + headerH, x1, y0 + headerH, 1.6);
+  page.drawText("Birthdays, etc.", {
+    x: px(x0 + 18), y: py(y0 + headerH - 26), size: 22, font: ctx.bold, color: INK_BLACK,
+  });
+  const yearText = String(ctx.year);
+  page.drawText(yearText, {
+    x: px(x1 - 18) - ctx.bold.widthOfTextAtSize(yearText, 30),
+    y: py(y0 + headerH - 22), size: 30, font: ctx.bold, color: INK_BLACK,
+  });
+
+  // birthdays grouped by month (already planner-scoped in ctx)
+  const byMonth = new Map<number, { day: number; title: string }[]>();
+  for (const [iso, events] of ctx.eventsByDate) {
+    if (!iso.startsWith(String(ctx.year))) continue;
+    for (const e of events) {
+      if (e.kind !== "birthday") continue;
+      const m = Number(iso.slice(5, 7)) - 1;
+      const list = byMonth.get(m) ?? [];
+      list.push({ day: Number(iso.slice(8, 10)), title: e.title });
+      byMonth.set(m, list);
+    }
+  }
+  for (const list of byMonth.values()) list.sort((a, b) => a.day - b.day);
+
+  const gridTop = y0 + headerH;
+  const cellW = (x1 - x0) / 3;
+  const cellH = (y1 - gridTop) / 4;
+  for (let m = 0; m < 12; m++) {
+    const col = m % 3;
+    const row = Math.floor(m / 3);
+    const cx = x0 + col * cellW;
+    const cy = gridTop + row * cellH;
+    if (col > 0) line(cx, gridTop, cx, y1, 1.2);
+    if (row > 0) line(x0, cy, x1, cy, 1.2);
+    page.drawText(MONTH_NAMES[m], {
+      x: px(cx + 10), y: py(cy + 22), size: 11, font: ctx.bold, color: INK_BLACK,
+    });
+    const linesTop = cy + 34;
+    const step = (cellH - 40) / LINES;
+    for (let i = 0; i < LINES; i++) {
+      const ly = linesTop + (i + 1) * step;
+      line(cx + 10, ly, cx + cellW - 10, ly, 0.5, hex("#64748b"));
+      const entry = byMonth.get(m)?.[i];
+      if (entry) {
+        page.drawText(safe(`${entry.day} - ${entry.title}`).slice(0, 34), {
+          x: px(cx + 12), y: py(ly) + 2, size: 8, font: ctx.font, color: INK_BLACK,
+        });
+      }
+    }
+  }
 }
 
 /* ----------------------------- ink & blocks ----------------------------- */

@@ -3,6 +3,7 @@ import WeekPage from "./WeekPage";
 import MonthPage from "./MonthPage";
 import YearPage from "./YearPage";
 import SectionPage from "./SectionPage";
+import BirthdaysPage from "./BirthdaysPage";
 
 export default function PageView({ page }: { page: Page }) {
   switch (page.type) {
@@ -13,6 +14,10 @@ export default function PageView({ page }: { page: Page }) {
     case "year":
       return <YearPage page={page} />;
     case "section":
-      return <SectionPage page={page} />;
+      return page.meta.sectionKey === "birthdays" ? (
+        <BirthdaysPage page={page} />
+      ) : (
+        <SectionPage page={page} />
+      );
   }
 }

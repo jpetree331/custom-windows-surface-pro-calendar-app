@@ -308,6 +308,7 @@ export default function PlannerShell() {
   const ui = useMemo<PlannerUI>(
     () => ({
       plannerId: planner?.id ?? "",
+      year: planner?.year ?? PLANNER_YEAR,
       tool,
       penColor,
       penWidth,
@@ -337,7 +338,7 @@ export default function PlannerShell() {
       },
       flipPage,
     }),
-    [planner?.id, tool, penColor, penWidth, selectedBlockId, selection, currentPageId, jumpToIndex, flipPage]
+    [planner?.id, planner?.year, tool, penColor, penWidth, selectedBlockId, selection, currentPageId, jumpToIndex, flipPage]
   );
 
   const jumpToMonth = useCallback(
