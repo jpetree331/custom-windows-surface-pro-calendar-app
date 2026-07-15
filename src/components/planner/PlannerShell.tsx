@@ -41,7 +41,8 @@ import {
   DEFAULT_VIEW_SETTINGS,
   type ViewSettings,
 } from "@/lib/planner/view-settings";
-import { PlannerUIContext, type PlannerUI } from "./ui-context";
+import SelectionOverlay from "./SelectionOverlay";
+import { PlannerUIContext, type AreaSelection, type PlannerUI } from "./ui-context";
 
 /** The whole planner: tabs, side buttons, toolbar, virtualized ink-enabled feed. */
 export default function PlannerShell() {
@@ -51,6 +52,7 @@ export default function PlannerShell() {
   const [penColor, setPenColor] = useState(PEN_COLORS[0].color);
   const [penWidth, setPenWidth] = useState(PEN_COLORS[0].width);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<AreaSelection | null>(null);
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const virtuoso = useRef<VirtuosoHandle>(null);
   const scrollerEl = useRef<HTMLElement | null>(null);
@@ -237,13 +239,18 @@ export default function PlannerShell() {
       tool,
       penColor,
       penWidth,
-      setTool,
+      setTool: (t) => {
+        setSelection(null); // a tool change dismisses any area selection
+        setTool(t);
+      },
       setPen: (c, w) => {
         setPenColor(c);
         setPenWidth(w);
       },
       selectedBlockId,
       setSelectedBlockId,
+      selection,
+      setSelection,
       currentPageId,
       jumpToDate: (iso: string) => {
         const i = currentWeekPageIndex(pagesRef.current, iso);
@@ -252,8 +259,22 @@ export default function PlannerShell() {
       setPenActive: (active) => {
         if (scrollerEl.current) scrollerEl.current.style.touchAction = active ? "none" : "";
       },
+      panBy: (dx, dy) => {
+        scrollerEl.current?.scrollBy(-dx, -dy);
+      },
+      flipPage: (dir) => {
+        if (viewSettingsRef.current.layout === "single") {
+          const next = singleIndexRef.current + dir;
+          if (next >= 0 && next < pagesRef.current.length) jumpToIndex(next);
+        } else {
+          scrollerEl.current?.scrollBy({
+            top: dir * scrollerEl.current.clientHeight * 0.95,
+            behavior: "smooth",
+          });
+        }
+      },
     }),
-    [planner?.id, tool, penColor, penWidth, selectedBlockId, currentPageId, jumpToIndex]
+    [planner?.id, tool, penColor, penWidth, selectedBlockId, selection, currentPageId, jumpToIndex]
   );
 
   const jumpToMonth = useCallback(
@@ -462,6 +483,7 @@ export default function PlannerShell() {
                     <BlocksLayer pageId={page.id} />
                     <InkCanvas pageId={page.id} />
                     {page.type === "week" && <HabitGrid page={page} plannerId={planner.id} />}
+                    {selection?.pageId === page.id && <SelectionOverlay />}
                   </div>
                 </div>
               )}
@@ -500,6 +522,7 @@ export default function PlannerShell() {
                     <BlocksLayer pageId={page.id} />
                     <InkCanvas pageId={page.id} />
                     {page.type === "week" && <HabitGrid page={page} plannerId={planner.id} />}
+                    {selection?.pageId === page.id && <SelectionOverlay />}
                   </div>
                 </div>
               )}

@@ -2,6 +2,7 @@
 
 export type ToolId =
   | "select"
+  | "marquee"
   | "pen"
   | "highlighter"
   | "eraser"

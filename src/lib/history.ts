@@ -11,7 +11,10 @@ export type HistoryEntry =
   | { kind: "deleteBlock"; block: Block }
   | { kind: "updateBlock"; before: Block; after: Block }
   | { kind: "duplicatePage"; page: Page; strokes: Stroke[]; blocks: Block[] }
-  | { kind: "deletePage"; page: Page; strokes: Stroke[]; blocks: Block[] };
+  | { kind: "deletePage"; page: Page; strokes: Stroke[]; blocks: Block[] }
+  | { kind: "updateStrokes"; before: Stroke[]; after: Stroke[] }
+  /** One undo step covering several mutations (area move/delete/duplicate). */
+  | { kind: "batch"; entries: HistoryEntry[] };
 
 const MAX = 200;
 interface ScopedEntry {
@@ -83,6 +86,18 @@ async function apply(entry: HistoryEntry, dir: "undo" | "redo") {
       await db.blocks.put(fwd ? entry.after : entry.before);
       await queueSync("blocks", entry.after.id, "put");
       break;
+    case "updateStrokes": {
+      const rows = fwd ? entry.after : entry.before;
+      await db.strokes.bulkPut(rows);
+      for (const s of rows) await queueSync("strokes", s.id, "put");
+      clearPathCache(rows.map((s) => s.id));
+      break;
+    }
+    case "batch": {
+      const ordered = fwd ? entry.entries : [...entry.entries].reverse();
+      for (const sub of ordered) await apply(sub, dir);
+      break;
+    }
     case "duplicatePage":
     case "deletePage": {
       // deletePage is duplicatePage mirrored: its redo REMOVES the page.

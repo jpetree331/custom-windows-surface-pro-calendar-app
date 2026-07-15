@@ -9,8 +9,11 @@ import {
   carryTaskForward,
   copyPageToClipboard,
   deletePage,
+  deleteSelectionContents,
   duplicatePage,
+  duplicateSelectionContents,
   makeTextBlock,
+  moveSelectionContents,
   addStroke,
   deleteStrokes,
   pastePageAfter,
@@ -211,6 +214,57 @@ describe("page copy / paste / delete (context menu)", () => {
     await history.redo();
     expect(await db.pages.get(wk.id)).toBeUndefined();
     expect(await db.pages.count()).toBe(78);
+  });
+});
+
+describe("⬚ area selection: move / delete / duplicate as single undo steps", () => {
+  beforeEach(seed);
+
+  async function seedSelection() {
+    const wk = (await db.pages.toArray()).find((p) => p.type === "week")!;
+    await addStroke({
+      id: "s1", pageId: wk.id, tool: "pen", color: "#000", width: 1, opacity: 1,
+      points: [[100, 100, 0.5], [140, 120, 0.6]], createdAt: 1,
+    });
+    const block = makeTextBlock(wk.id, 110, 110, "inside");
+    await addBlock(block);
+    return { pageId: wk.id, strokeIds: ["s1"], blockIds: [block.id] };
+  }
+
+  it("move shifts stroke points and block position; one Ctrl+Z restores both", async () => {
+    const sel = await seedSelection();
+    await moveSelectionContents(sel, 50, -20);
+    expect((await db.strokes.get("s1"))!.points[0]).toEqual([150, 80, 0.5]);
+    expect((await db.blocks.get(sel.blockIds[0]))!.x).toBe(160);
+    await history.undo(); // ONE step
+    expect((await db.strokes.get("s1"))!.points[0]).toEqual([100, 100, 0.5]);
+    expect((await db.blocks.get(sel.blockIds[0]))!.x).toBe(110);
+    await history.redo();
+    expect((await db.strokes.get("s1"))!.points[0]).toEqual([150, 80, 0.5]);
+  });
+
+  it("delete removes ink + blocks together; one undo resurrects everything", async () => {
+    const sel = await seedSelection();
+    await deleteSelectionContents(sel);
+    expect(await db.strokes.get("s1")).toBeUndefined();
+    expect(await db.blocks.get(sel.blockIds[0])).toBeUndefined();
+    await history.undo();
+    expect(await db.strokes.get("s1")).toBeDefined();
+    expect((await db.blocks.get(sel.blockIds[0]))!.content).toBe("inside");
+  });
+
+  it("duplicate clones offset copies with fresh ids; one undo removes the clones only", async () => {
+    const sel = await seedSelection();
+    const clone = await duplicateSelectionContents(sel);
+    expect(clone.strokeIds[0]).not.toBe("s1");
+    const cloned = (await db.strokes.get(clone.strokeIds[0]))!;
+    expect(cloned.points[0]).toEqual([124, 124, 0.5]);
+    expect(await db.strokes.count()).toBe(2);
+    expect(await db.blocks.count()).toBe(2);
+    await history.undo();
+    expect(await db.strokes.count()).toBe(1);
+    expect(await db.blocks.count()).toBe(1);
+    expect(await db.strokes.get("s1")).toBeDefined(); // original untouched
   });
 });
 

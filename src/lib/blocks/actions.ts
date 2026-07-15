@@ -2,6 +2,7 @@ import { db } from "@/lib/db/db";
 import type { Block, Page, Stroke } from "@/lib/db/types";
 import { queueSync } from "@/lib/sync";
 import * as history from "@/lib/history";
+import { clearPathCache } from "@/lib/ink/render";
 import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 
 export async function addStroke(stroke: Stroke) {
@@ -148,6 +149,112 @@ export async function carryTaskForward(block: Block): Promise<Page | null> {
     updatedAt: now,
   });
   return nextWeek;
+}
+
+/* ------------------------- ⬚ area selection ops ------------------------- */
+
+export interface AreaSelectionRef {
+  pageId: string;
+  strokeIds: string[];
+  blockIds: string[];
+}
+
+async function selectionRows(sel: AreaSelectionRef): Promise<{ strokes: Stroke[]; blocks: Block[] }> {
+  const [strokes, blocks] = await Promise.all([
+    db.strokes.bulkGet(sel.strokeIds),
+    db.blocks.bulkGet(sel.blockIds),
+  ]);
+  return {
+    strokes: strokes.filter((s): s is Stroke => !!s),
+    blocks: blocks.filter((b): b is Block => !!b),
+  };
+}
+
+/** Shift every selected stroke point and block by (dx, dy) — one undo step. */
+export async function moveSelectionContents(sel: AreaSelectionRef, dx: number, dy: number) {
+  const { strokes, blocks } = await selectionRows(sel);
+  if (strokes.length === 0 && blocks.length === 0) return;
+  const now = Date.now();
+  const strokesAfter = strokes.map((s) => ({
+    ...s,
+    points: s.points.map(([x, y, p]) => [x + dx, y + dy, p] as [number, number, number]),
+  }));
+  const blocksAfter = blocks.map((b) => ({ ...b, x: b.x + dx, y: b.y + dy, updatedAt: now }));
+  await db.transaction("rw", db.strokes, db.blocks, async () => {
+    await db.strokes.bulkPut(strokesAfter);
+    await db.blocks.bulkPut(blocksAfter);
+  });
+  for (const s of strokesAfter) await queueSync("strokes", s.id, "put");
+  for (const b of blocksAfter) await queueSync("blocks", b.id, "put");
+  clearSelectionPathCache(sel);
+  history.push({
+    kind: "batch",
+    entries: [
+      { kind: "updateStrokes", before: strokes, after: strokesAfter },
+      ...blocks.map((b, i) => ({ kind: "updateBlock" as const, before: b, after: blocksAfter[i] })),
+    ],
+  });
+}
+
+/** Delete everything inside the selection — one undo step brings it all back. */
+export async function deleteSelectionContents(sel: AreaSelectionRef) {
+  const { strokes, blocks } = await selectionRows(sel);
+  if (strokes.length === 0 && blocks.length === 0) return;
+  await db.transaction("rw", db.strokes, db.blocks, async () => {
+    await db.strokes.bulkDelete(strokes.map((s) => s.id));
+    await db.blocks.bulkDelete(blocks.map((b) => b.id));
+  });
+  for (const s of strokes) await queueSync("strokes", s.id, "delete");
+  for (const b of blocks) await queueSync("blocks", b.id, "delete");
+  clearSelectionPathCache(sel);
+  history.push({
+    kind: "batch",
+    entries: [
+      { kind: "deleteStrokes", strokes },
+      ...blocks.map((b) => ({ kind: "deleteBlock" as const, block: b })),
+    ],
+  });
+}
+
+/** Clone the selection slightly offset; returns the clone's ids. */
+export async function duplicateSelectionContents(
+  sel: AreaSelectionRef,
+  offset = 24
+): Promise<AreaSelectionRef> {
+  const { strokes, blocks } = await selectionRows(sel);
+  const now = Date.now();
+  const strokeCopies = strokes.map((s) => ({
+    ...s,
+    id: crypto.randomUUID(),
+    points: s.points.map(([x, y, p]) => [x + offset, y + offset, p] as [number, number, number]),
+    createdAt: now,
+  }));
+  const blockCopies = blocks.map((b) => ({
+    ...b,
+    id: crypto.randomUUID(),
+    x: b.x + offset,
+    y: b.y + offset,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  await db.transaction("rw", db.strokes, db.blocks, async () => {
+    await db.strokes.bulkAdd(strokeCopies);
+    await db.blocks.bulkAdd(blockCopies);
+  });
+  for (const s of strokeCopies) await queueSync("strokes", s.id, "put");
+  for (const b of blockCopies) await queueSync("blocks", b.id, "put");
+  history.push({
+    kind: "batch",
+    entries: [
+      ...strokeCopies.map((stroke) => ({ kind: "addStroke" as const, stroke })),
+      ...blockCopies.map((block) => ({ kind: "addBlock" as const, block })),
+    ],
+  });
+  return { pageId: sel.pageId, strokeIds: strokeCopies.map((s) => s.id), blockIds: blockCopies.map((b) => b.id) };
+}
+
+function clearSelectionPathCache(sel: AreaSelectionRef) {
+  clearPathCache(sel.strokeIds);
 }
 
 /** In-app clipboard for whole pages (content travels with the page). */
