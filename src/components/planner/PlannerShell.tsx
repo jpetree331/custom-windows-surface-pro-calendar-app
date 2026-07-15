@@ -120,6 +120,10 @@ export default function PlannerShell() {
   viewSettingsRef.current = viewSettings;
   const singleIndexRef = useRef(singleIndex);
   singleIndexRef.current = singleIndex;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  /** True while a pen stroke is in progress — palm touches must do nothing. */
+  const penActiveRef = useRef(false);
 
   /** Page whose rendered element is closest to the viewport center — the one
    *  the user is actually looking at (paste / duplicate target). */
@@ -148,8 +152,37 @@ export default function PlannerShell() {
     setCurrentPageId(page.id);
   }, []);
 
-  // Route pinch + Ctrl+wheel over the planner into the APP zoom, so the month
-  // tabs and toolbar never scroll away (browser viewport zoom would hide them).
+  const jumpToIndex = useCallback(
+    (index: number) => {
+      if (viewSettingsRef.current.layout === "single") {
+        setSingleIndex(index);
+        syncPagePosition(index);
+      } else {
+        virtuoso.current?.scrollToIndex({ index, align: "start", behavior: "smooth" });
+      }
+    },
+    [syncPagePosition]
+  );
+
+  const flipPage = useCallback(
+    (dir: 1 | -1) => {
+      if (viewSettingsRef.current.layout === "single") {
+        const next = singleIndexRef.current + dir;
+        if (next >= 0 && next < pagesRef.current.length) jumpToIndex(next);
+      } else {
+        scrollerEl.current?.scrollBy({
+          top: dir * scrollerEl.current.clientHeight * 0.95,
+          behavior: "smooth",
+        });
+      }
+    },
+    [jumpToIndex]
+  );
+
+  // ONE owner for every touch gesture over the planner, regardless of tool or
+  // element under the finger: 1 finger = pan + book-swipe page flip, 2 fingers
+  // = app zoom, Ctrl+wheel = app zoom. preventDefault stops the browser's own
+  // scrolling AND the whole-app overscroll rubber-band Jo hit.
   useEffect(() => {
     const el = feedEl;
     if (!el) return;
@@ -167,21 +200,72 @@ export default function PlannerShell() {
     const dist = (t: TouchList) =>
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
+    let pan: {
+      id: number;
+      lastX: number;
+      lastY: number;
+      totX: number;
+      totY: number;
+      t0: number;
+    } | null = null;
+    // Elements that own their own touch interactions — never start a pan there.
+    const INTERACTIVE =
+      "[data-block-id],[data-selection-box],button,input,select,textarea,a,[contenteditable='true']";
+
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
         pinchBase = { dist: dist(e.touches), zoom: viewSettingsRef.current.zoom };
+        pan = null;
+        return;
       }
+      if (e.touches.length !== 1) return;
+      if (penActiveRef.current) return; // palm while the pen is writing
+      const t = e.touches[0];
+      const target = t.target as HTMLElement;
+      if (target.closest?.(INTERACTIVE)) return;
+      // finger-drawn marquee boxes go to the ink canvas, not panning
+      if (toolRef.current === "marquee" && target.closest?.("canvas[data-ink-canvas]")) return;
+      pan = {
+        id: t.identifier,
+        lastX: t.clientX,
+        lastY: t.clientY,
+        totX: 0,
+        totY: 0,
+        t0: performance.now(),
+      };
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length < 2) return;
-      e.preventDefault(); // stop the browser from pinch-zooming the viewport
-      if (!pinchBase) pinchBase = { dist: dist(e.touches), zoom: viewSettingsRef.current.zoom };
-      applyZoom(clamp(pinchBase.zoom * (dist(e.touches) / pinchBase.dist)), false);
+      if (e.touches.length >= 2) {
+        pan = null;
+        e.preventDefault(); // stop the browser from pinch-zooming the viewport
+        if (!pinchBase) pinchBase = { dist: dist(e.touches), zoom: viewSettingsRef.current.zoom };
+        applyZoom(clamp(pinchBase.zoom * (dist(e.touches) / pinchBase.dist)), false);
+        return;
+      }
+      if (!pan || penActiveRef.current) return;
+      const t = Array.from(e.touches).find((tt) => tt.identifier === pan!.id);
+      if (!t) return;
+      e.preventDefault(); // we own the gesture — no native scroll, no app-wide rubber-band
+      const dx = t.clientX - pan.lastX;
+      const dy = t.clientY - pan.lastY;
+      pan.lastX = t.clientX;
+      pan.lastY = t.clientY;
+      pan.totX += dx;
+      pan.totY += dy;
+      scrollerEl.current?.scrollBy(-dx, -dy);
     };
-    const onTouchEnd = () => {
-      if (pinchBase) {
+    const onTouchEnd = (e: TouchEvent) => {
+      if (pinchBase && e.touches.length < 2) {
         pinchBase = null;
         saveViewSettings(viewSettingsRef.current);
+      }
+      if (pan && !Array.from(e.touches).some((t) => t.identifier === pan!.id)) {
+        const { totX, totY, t0 } = pan;
+        pan = null;
+        // Book-style swipe: fast, mostly-horizontal drag flips the page.
+        if (performance.now() - t0 < 600 && Math.abs(totX) > 60 && Math.abs(totX) > 1.5 * Math.abs(totY)) {
+          flipPage(totX < 0 ? 1 : -1);
+        }
       }
     };
     const onWheel = (e: WheelEvent) => {
@@ -202,7 +286,7 @@ export default function PlannerShell() {
       el.removeEventListener("touchcancel", onTouchEnd);
       el.removeEventListener("wheel", onWheel);
     };
-  }, [feedEl]);
+  }, [feedEl, flipPage]);
 
   const changeViewSettings = useCallback(
     (s: ViewSettings) => {
@@ -219,18 +303,6 @@ export default function PlannerShell() {
       saveViewSettings(s);
     },
     [viewportCenterPageId, syncPagePosition]
-  );
-
-  const jumpToIndex = useCallback(
-    (index: number) => {
-      if (viewSettingsRef.current.layout === "single") {
-        setSingleIndex(index);
-        syncPagePosition(index);
-      } else {
-        virtuoso.current?.scrollToIndex({ index, align: "start", behavior: "smooth" });
-      }
-    },
-    [syncPagePosition]
   );
 
   const ui = useMemo<PlannerUI>(
@@ -257,24 +329,15 @@ export default function PlannerShell() {
         if (i >= 0) jumpToIndex(i);
       },
       setPenActive: (active) => {
+        penActiveRef.current = active; // feed-level pan checks this (palm rejection)
         if (scrollerEl.current) scrollerEl.current.style.touchAction = active ? "none" : "";
       },
       panBy: (dx, dy) => {
         scrollerEl.current?.scrollBy(-dx, -dy);
       },
-      flipPage: (dir) => {
-        if (viewSettingsRef.current.layout === "single") {
-          const next = singleIndexRef.current + dir;
-          if (next >= 0 && next < pagesRef.current.length) jumpToIndex(next);
-        } else {
-          scrollerEl.current?.scrollBy({
-            top: dir * scrollerEl.current.clientHeight * 0.95,
-            behavior: "smooth",
-          });
-        }
-      },
+      flipPage,
     }),
-    [planner?.id, tool, penColor, penWidth, selectedBlockId, selection, currentPageId, jumpToIndex]
+    [planner?.id, tool, penColor, penWidth, selectedBlockId, selection, currentPageId, jumpToIndex, flipPage]
   );
 
   const jumpToMonth = useCallback(

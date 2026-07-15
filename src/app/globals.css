@@ -12,7 +12,8 @@
 html,
 body {
   height: 100%;
-  overscroll-behavior-y: none;
+  /* BOTH axes: horizontal swipes were rubber-banding the whole app */
+  overscroll-behavior: none;
 }
 
 body {

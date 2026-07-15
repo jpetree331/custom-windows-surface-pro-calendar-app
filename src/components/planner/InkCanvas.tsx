@@ -73,13 +73,6 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
     let pointerId = -1;
     let marquee: { start: [number, number]; end: [number, number] } | null = null;
 
-    // one-finger manual pan / swipe state
-    let panId = -1;
-    let touchCount = 0;
-    let panLast = { x: 0, y: 0 };
-    let panTotal = { x: 0, y: 0 };
-    let panStartT = 0;
-
     const toLogical = (e: PointerEvent): [number, number, number] => {
       const rect = canvas.getBoundingClientRect();
       const scale = PAGE_W / rect.width;
@@ -154,21 +147,9 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       const { tool } = uiRef.current;
       if (tool === "select" || tool === "text" || tool === "image") return;
 
-      if (e.pointerType === "touch" && tool !== "marquee") {
-        // One finger pans; a second finger hands over to the pinch zoom.
-        touchCount++;
-        if (drawing) return; // palm while writing — ignore entirely
-        if (touchCount === 1) {
-          panId = e.pointerId;
-          panLast = { x: e.clientX, y: e.clientY };
-          panTotal = { x: 0, y: 0 };
-          panStartT = performance.now();
-          capture(e.pointerId);
-        } else {
-          panId = -1; // pinch takes over
-        }
-        return;
-      }
+      // Touch never draws (except finger-marquee): the feed-level gesture
+      // handler owns panning, book-swipes, and pinch zoom.
+      if (e.pointerType === "touch" && tool !== "marquee") return;
 
       // pen / mouse (or any pointer in marquee mode) = ink or marquee
       drawing = true;
@@ -193,14 +174,6 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
     };
 
     const onMove = (e: PointerEvent) => {
-      if (e.pointerId === panId) {
-        const dx = e.clientX - panLast.x;
-        const dy = e.clientY - panLast.y;
-        panLast = { x: e.clientX, y: e.clientY };
-        panTotal = { x: panTotal.x + dx, y: panTotal.y + dy };
-        uiRef.current.panBy(dx, dy);
-        return;
-      }
       if (!drawing || e.pointerId !== pointerId) return;
       const { tool } = uiRef.current;
       const coalesced = "getCoalescedEvents" in e ? e.getCoalescedEvents() : [];
@@ -214,17 +187,6 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
         else points.push(p);
       }
       if (tool !== "eraser") repaintLive();
-    };
-
-    const endTouch = (e: PointerEvent) => {
-      touchCount = Math.max(0, touchCount - 1);
-      if (e.pointerId !== panId) return;
-      panId = -1;
-      // Book-style swipe: fast, mostly-horizontal drag flips the page.
-      const dt = performance.now() - panStartT;
-      if (dt < 600 && Math.abs(panTotal.x) > 60 && Math.abs(panTotal.x) > 1.5 * Math.abs(panTotal.y)) {
-        uiRef.current.flipPage(panTotal.x < 0 ? 1 : -1);
-      }
     };
 
     const finishMarquee = async () => {
@@ -252,10 +214,6 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
     };
 
     const finish = async (e: PointerEvent) => {
-      if (e.pointerType === "touch" && e.pointerId !== pointerId) {
-        endTouch(e);
-        return;
-      }
       if (!drawing || e.pointerId !== pointerId) return;
       drawing = false;
       uiRef.current.setPenActive(false);
@@ -279,11 +237,6 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
     // pointercancel must DISCARD, never commit — a cancelled pen stroke saved
     // as a fragment is exactly the "gappy writing" failure mode.
     const abort = (e: PointerEvent) => {
-      if (e.pointerType === "touch") {
-        touchCount = Math.max(0, touchCount - 1);
-        if (e.pointerId === panId) panId = -1;
-        return;
-      }
       if (!drawing || e.pointerId !== pointerId) return;
       drawing = false;
       uiRef.current.setPenActive(false);
