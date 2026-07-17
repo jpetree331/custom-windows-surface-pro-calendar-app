@@ -78,6 +78,34 @@ export async function listInstances(
   return items;
 }
 
+export interface GCalendar {
+  id: string;
+  summary?: string;
+  primary?: boolean;
+  /** true when the calendar is checked (shown) in Google Calendar's UI. */
+  selected?: boolean;
+}
+
+/** All calendars on the account (needs calendar.readonly scope). */
+export async function listCalendars(
+  token: string,
+  fetchImpl: FetchLike = fetch
+): Promise<GCalendar[]> {
+  const items: GCalendar[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ minAccessRole: "reader", maxResults: "250" });
+    if (pageToken) params.set("pageToken", pageToken);
+    const page = (await gFetch(token, `/users/me/calendarList?${params}`, {}, fetchImpl)) as {
+      items?: GCalendar[];
+      nextPageToken?: string;
+    };
+    items.push(...(page.items ?? []));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return items;
+}
+
 /**
  * Create an event — used for repeats (RRULE), reminders, and inviting a
  * contact as an attendee (Gate B's "share to Google Contacts" reading).

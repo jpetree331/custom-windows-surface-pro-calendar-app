@@ -22,7 +22,12 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
     try {
       const token = await getAccessToken();
       const r = await importYear(plannerId, year, token);
-      setStatus(`Imported ${r.total} events (${r.added} new, ${r.updated} refreshed).`);
+      const parts = [
+        `Imported ${r.total} items from ${r.calendars} calendar${r.calendars === 1 ? "" : "s"}`,
+        `(${r.added} new, ${r.updated} refreshed${r.tasks ? `, ${r.tasks} Google Tasks` : ""}).`,
+      ];
+      if (r.warnings.length > 0) parts.push(`⚠ ${r.warnings.join(" ")}`);
+      setStatus(parts.join(" "));
     } catch (err) {
       setStatus(String(err instanceof Error ? err.message : err));
     } finally {

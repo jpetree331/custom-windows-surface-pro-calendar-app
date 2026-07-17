@@ -16,14 +16,42 @@ function ImageContent({ blob }: { blob: Blob }) {
   return <img src={url} alt="" className="h-full w-full select-none object-fill" draggable={false} />;
 }
 
+const LAST_CUSTOM_KEY = "jotter.lastTextColor";
+
 function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   const ui = usePlannerUI();
   const selected = ui.selectedBlockId === block.id;
-  const categories = useLiveQuery(() => db.categories.toArray(), []) ?? [];
-  const category = categories.find((c) => c.id === block.categoryId);
+  // Text-color swatches = HER categories (this year's only), deduped + black.
+  const categories =
+    useLiveQuery(
+      () => db.categories.where("plannerId").equals(ui.plannerId).sortBy("order"),
+      [ui.plannerId]
+    ) ?? [];
+  const [lastCustom, setLastCustom] = useState<string | null>(() =>
+    typeof localStorage === "undefined" ? null : localStorage.getItem(LAST_CUSTOM_KEY)
+  );
+  const swatches = (() => {
+    const seen = new Set<string>();
+    const out: { color: string; name: string }[] = [];
+    for (const c of categories) {
+      const key = c.color.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ color: c.color, name: c.name });
+    }
+    if (!seen.has("#000000")) out.push({ color: "#000000", name: "Black" });
+    if (lastCustom && !seen.has(lastCustom.toLowerCase()) && lastCustom.toLowerCase() !== "#000000") {
+      out.push({ color: lastCustom, name: "Custom" });
+    }
+    return out;
+  })();
+  const customColorRef = useRef<HTMLInputElement>(null);
   const scale = pageWidth / PAGE_W;
   const [editing, setEditing] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
+
+  const setTextColor = (color: string) =>
+    void updateBlock(block, { ...block, color, categoryId: undefined, updatedAt: Date.now() });
   const dragState = useRef<{ startX: number; startY: number; orig: Block; mode: "move" | "resize" } | null>(null);
 
   const commitDrag = (e: PointerEvent | React.PointerEvent) => {
@@ -74,10 +102,28 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   };
 
   const saveText = () => {
+    const el = textRef.current;
+    const text = el?.innerText ?? "";
+    // Shrink the box to fit its text (Jo: a full-size empty box blocks the
+    // pen near the words). Measure at natural size, then persist.
+    let fitted: Partial<Block> = {};
+    if (el && text.trim()) {
+      const prev = { width: el.style.width, maxWidth: el.style.maxWidth, height: el.style.height };
+      el.style.width = "max-content";
+      el.style.maxWidth = `${PAGE_W * 0.7 * scale}px`;
+      el.style.height = "auto";
+      const checkboxPad = block.type === "task" ? 26 : 0;
+      fitted = {
+        w: Math.max(60, Math.min(PAGE_W * 0.7, el.offsetWidth / scale + 8) + checkboxPad),
+        h: Math.max(24, el.offsetHeight / scale + 6),
+      };
+      el.style.width = prev.width;
+      el.style.maxWidth = prev.maxWidth;
+      el.style.height = prev.height;
+    }
     setEditing(false);
-    const text = textRef.current?.innerText ?? "";
-    if (text !== block.content) {
-      void updateBlock(block, { ...block, content: text, updatedAt: Date.now() });
+    if (text !== block.content || fitted.w !== undefined) {
+      void updateBlock(block, { ...block, content: text, ...fitted, updatedAt: Date.now() });
     }
   };
 
@@ -88,13 +134,12 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
       style={{
         left: block.x * scale,
         top: block.y * scale,
-        width: block.w * scale,
-        height: block.h * scale,
+        // While editing, expand to a comfortable size; shrink-to-fit on Done.
+        width: (editing ? Math.max(block.w, 280) : block.w) * scale,
+        height: (editing ? Math.max(block.h, 110) : block.h) * scale,
         zIndex: block.z,
         pointerEvents: ui.tool === "select" ? "auto" : "none",
         outline: selected ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
-        borderLeft: category && block.type !== "image" ? `4px solid ${category.color}` : undefined,
-        background: category && block.type !== "image" ? `${category.color}1f` : undefined,
         transform: undefined,
       }}
       onPointerDown={(e) => startDrag(e, "move")}
@@ -151,25 +196,44 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             onPointerUp={(e) => commitDrag(e)}
           />
           <div className="absolute -top-8 left-0 flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-            {block.type !== "image" &&
-              categories.map((c) => (
+            {block.type !== "image" && (
+              <>
+                {swatches.map((s) => (
+                  <button
+                    key={s.color}
+                    title={`Text color: ${s.name}`}
+                    data-text-color={s.color}
+                    onClick={() => setTextColor(s.color)}
+                    className={`h-4 w-4 rounded-full border ${
+                      (block.color ?? "#0f172a").toLowerCase() === s.color.toLowerCase()
+                        ? "border-black ring-2 ring-white"
+                        : "border-white/70"
+                    }`}
+                    style={{ background: s.color }}
+                  />
+                ))}
                 <button
-                  key={c.id}
-                  title={`Category: ${c.name}`}
-                  data-category-dot={c.name}
-                  onClick={() =>
-                    void updateBlock(block, {
-                      ...block,
-                      categoryId: block.categoryId === c.id ? undefined : c.id,
-                      updatedAt: Date.now(),
-                    })
-                  }
-                  className={`h-4 w-4 rounded-full border ${
-                    block.categoryId === c.id ? "border-black ring-2 ring-white" : "border-white/70"
-                  }`}
-                  style={{ background: c.color }}
+                  title="Pick any text color"
+                  data-text-color-custom
+                  onClick={() => customColorRef.current?.click()}
+                  className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-400 bg-white text-[10px] font-bold leading-none text-slate-700"
+                >
+                  +
+                </button>
+                <input
+                  ref={customColorRef}
+                  type="color"
+                  defaultValue={lastCustom ?? "#0f172a"}
+                  className="hidden"
+                  onChange={(e) => {
+                    const c = e.target.value;
+                    localStorage.setItem(LAST_CUSTOM_KEY, c);
+                    setLastCustom(c);
+                    setTextColor(c);
+                  }}
                 />
-              ))}
+              </>
+            )}
             <button
               className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold text-white"
               onClick={() => copyBlockToClipboard(block)}
@@ -194,6 +258,17 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
               }}
             >
               Delete
+            </button>
+            <button
+              data-block-action="done"
+              className="rounded bg-slate-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+              title="Deselect"
+              onClick={() => {
+                if (editing) saveText();
+                ui.setSelectedBlockId(null);
+              }}
+            >
+              Done
             </button>
           </div>
         </>

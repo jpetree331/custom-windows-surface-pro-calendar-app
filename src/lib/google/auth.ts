@@ -8,10 +8,18 @@
  */
 
 // Scope names verified against developers.google.com/workspace/calendar/api/auth (2026-07-08).
-// drive.appdata = hidden per-app folder in Jo's OWN Google Drive (cloud backup);
-// the app can only see files it created there, nothing else in her Drive.
-export const GOOGLE_SCOPE =
-  "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.appdata";
+// - calendar.events: read/create events on calendars we know by id
+// - calendar.readonly: LIST her calendars, so appointments on secondary
+//   calendars import too (calendar.events alone can't enumerate them)
+// - tasks.readonly: import Google Tasks as To-Do items
+// - drive.appdata: hidden per-app Drive folder for cloud backup (only sees
+//   files this app created)
+export const GOOGLE_SCOPE = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/tasks.readonly",
+  "https://www.googleapis.com/auth/drive.appdata",
+].join(" ");
 
 const GIS_SRC = "https://accounts.google.com/gsi/client";
 const TOKEN_KEY = "jotter.gtoken";

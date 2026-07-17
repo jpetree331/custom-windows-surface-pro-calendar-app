@@ -566,11 +566,6 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
       }
       continue;
     }
-    const color = ctx.categoryColor.get(b.categoryId ?? "");
-    if (color) {
-      page.drawRectangle({ x: px(b.x), y: py(b.y + b.h), width: b.w * S, height: b.h * S, color: hex(color), opacity: 0.12 });
-      page.drawRectangle({ x: px(b.x), y: py(b.y + b.h), width: 2.5, height: b.h * S, color: hex(color) });
-    }
     const size = 9;
     const textColor = b.color ? hex(b.color) : INK_BLACK;
     const prefix = b.type === "task" ? (b.checked ? "[x] " : "[ ] ") : "";

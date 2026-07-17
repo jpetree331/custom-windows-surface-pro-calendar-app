@@ -6,13 +6,24 @@ import { importYear, mapGoogleEvent } from "./import";
 
 const PLANNER_ID = "p1";
 
-function mockFetch(pages: Record<string, unknown>[]): typeof fetch {
-  let call = 0;
+/** Routes by URL substring; unmatched URLs 404 (so sources degrade, not lie). */
+function routeFetch(routes: [string, unknown][]): typeof fetch {
   return vi.fn(async (url: RequestInfo | URL) => {
-    void url;
-    const body = pages[Math.min(call++, pages.length - 1)];
-    return new Response(JSON.stringify(body), { status: 200 });
+    const u = decodeURIComponent(String(url));
+    const hit = routes.find(([frag]) => u.includes(frag));
+    if (!hit) return new Response("not found", { status: 404 });
+    return new Response(JSON.stringify(hit[1]), { status: 200 });
   }) as unknown as typeof fetch;
+}
+
+/** Standard happy-path routing: primary calendar only, no tasks lists. */
+function basicRoutes(events: GEvent[], birthdays: GEvent[]): [string, unknown][] {
+  return [
+    ["/users/me/calendarList", { items: [{ id: "primary", primary: true }] }],
+    ["eventTypes=birthday", { items: birthdays }],
+    ["/calendars/primary/events", { items: events }],
+    ["/users/@me/lists", { items: [] }],
+  ];
 }
 
 const WEEKLY_INSTANCES: GEvent[] = [0, 1, 2].map((i) => ({
@@ -63,28 +74,85 @@ describe("mapGoogleEvent", () => {
 
 describe("importYear", () => {
   it("imports events + birthdays; repeating event lands on every instance day", async () => {
-    const f = mockFetch([
-      { items: [SINGLE, ...WEEKLY_INSTANCES] }, // default+fromGmail call
-      { items: [BIRTHDAY] }, // birthday call
-    ]);
+    const f = routeFetch(basicRoutes([SINGLE, ...WEEKLY_INSTANCES], [BIRTHDAY]));
     const r = await importYear(PLANNER_ID, 2026, "tok", f);
-    expect(r).toEqual({ added: 5, updated: 0, total: 5 });
+    expect(r).toMatchObject({ added: 5, updated: 0, total: 5, calendars: 1, tasks: 0 });
     const dates = (await db.events.toArray()).filter((e) => e.rrule).map((e) => e.date).sort();
     expect(dates).toEqual(["2026-07-06", "2026-07-13", "2026-07-20"]);
   });
 
   it("repeated syncs never duplicate (upsert by googleId)", async () => {
-    const pages = [{ items: [SINGLE, ...WEEKLY_INSTANCES] }, { items: [BIRTHDAY] }];
-    await importYear(PLANNER_ID, 2026, "tok", mockFetch(pages));
-    const r2 = await importYear(PLANNER_ID, 2026, "tok", mockFetch(pages));
-    expect(r2).toEqual({ added: 0, updated: 5, total: 5 });
+    const routes = basicRoutes([SINGLE, ...WEEKLY_INSTANCES], [BIRTHDAY]);
+    await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes));
+    const r2 = await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes));
+    expect(r2).toMatchObject({ added: 0, updated: 5, total: 5 });
     expect(await db.events.count()).toBe(5);
     // title update flows through on re-import
     const renamed = { ...SINGLE, summary: "Dentist (moved)" };
-    await importYear(PLANNER_ID, 2026, "tok", mockFetch([{ items: [renamed] }, { items: [] }]));
+    await importYear(PLANNER_ID, 2026, "tok", routeFetch(basicRoutes([renamed], [])));
     const row = await db.events.where("googleId").equals("single_1").first();
     expect(row?.title).toBe("Dentist (moved)");
     expect(await db.events.count()).toBe(5);
+  });
+
+  it("imports appointments from SECONDARY calendars too (Jo's missing appointments)", async () => {
+    const appt: GEvent = {
+      id: "appt_1",
+      summary: "Hair appointment",
+      start: { dateTime: "2026-07-20T10:00:00-05:00" },
+      end: { dateTime: "2026-07-20T11:00:00-05:00" },
+      eventType: "default",
+    };
+    const f = routeFetch([
+      ["/users/me/calendarList", { items: [
+        { id: "primary", primary: true },
+        { id: "appointments@group.calendar.google.com", selected: true },
+        { id: "ignored@group.calendar.google.com" }, // not selected → skipped
+      ] }],
+      ["eventTypes=birthday", { items: [] }],
+      ["/calendars/primary/events", { items: [SINGLE] }],
+      ["/calendars/appointments@group.calendar.google.com/events", { items: [appt] }],
+      ["/users/@me/lists", { items: [] }],
+    ]);
+    const r = await importYear(PLANNER_ID, 2026, "tok", f);
+    expect(r).toMatchObject({ total: 2, calendars: 2, warnings: [] });
+    const hair = await db.events.where("googleId").equals("appt_1").first();
+    expect(hair?.title).toBe("Hair appointment");
+    expect(hair?.date).toBe("2026-07-20");
+  });
+
+  it("imports Google Tasks as To-Do-categorized reminders on their due dates", async () => {
+    await db.categories.add({ id: "cat-todo", plannerId: PLANNER_ID, name: "To-Do List", color: "#7400B3", order: 1 });
+    const f = routeFetch([
+      ["/users/me/calendarList", { items: [{ id: "primary", primary: true }] }],
+      ["eventTypes=birthday", { items: [] }],
+      ["/calendars/primary/events", { items: [] }],
+      ["/users/@me/lists", { items: [{ id: "list1", title: "My Tasks" }] }],
+      ["/lists/list1/tasks", { items: [
+        { id: "t1", title: "Renew registration", due: "2026-08-03T00:00:00.000Z", status: "needsAction" },
+        { id: "t2", title: "", due: "2026-08-04T00:00:00.000Z" }, // untitled → skipped
+        { id: "t3", title: "Someday item" }, // no due date → skipped
+      ] }],
+    ]);
+    const r = await importYear(PLANNER_ID, 2026, "tok", f);
+    expect(r).toMatchObject({ tasks: 1, total: 1, warnings: [] });
+    const task = await db.events.where("googleId").equals("task:t1").first();
+    expect(task).toMatchObject({ kind: "reminder", title: "Renew registration", date: "2026-08-03", categoryId: "cat-todo" });
+    // re-import: no duplicates
+    await importYear(PLANNER_ID, 2026, "tok", f);
+    expect(await db.events.count()).toBe(1);
+  });
+
+  it("degrades gracefully when calendar-list/tasks scopes are missing (old token)", async () => {
+    // Only the original endpoints exist; calendarList + tasks 404.
+    const f = routeFetch([
+      ["eventTypes=birthday", { items: [BIRTHDAY] }],
+      ["/calendars/primary/events", { items: [SINGLE] }],
+    ]);
+    const r = await importYear(PLANNER_ID, 2026, "tok", f);
+    expect(r).toMatchObject({ total: 2, calendars: 1, tasks: 0 });
+    expect(r.warnings.length).toBe(2); // calendar-list + tasks warnings
+    expect(r.warnings.join(" ")).toContain("reconnect");
   });
 });
 

@@ -10,8 +10,9 @@ it creates there).
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a
    project (e.g. `jo-planner`).
-2. **APIs & Services → Library** → enable **Google Calendar API** AND
-   **Google Drive API** (the second one powers the Drive auto-backup).
+2. **APIs & Services → Library** → enable **Google Calendar API**,
+   **Google Drive API** (Drive auto-backup), AND **Google Tasks API**
+   (imports her Tasks as To-Do items).
 3. **APIs & Services → OAuth consent screen** → External → fill the app name +
    your email. Keep **Publishing status: Testing** and add Jo's Google account
    under **Test users** (this is the plan's "you host for Jo" simplest mode —
@@ -29,10 +30,18 @@ it creates there).
   (needed for the attendee-invite flow). For strict import-only, change
   `GOOGLE_SCOPE` in `src/lib/google/auth.ts` to `.../calendar.events.readonly`
   and remove the "Create in Google" form.
+- `https://www.googleapis.com/auth/calendar.readonly` — lists her calendars so
+  appointments on secondary calendars import too (without it only "primary"
+  was read — the missing-appointments bug).
+- `https://www.googleapis.com/auth/tasks.readonly` — imports Google Tasks with
+  due dates as To-Do items.
 - `https://www.googleapis.com/auth/drive.appdata` — the hidden per-app Drive
   folder for automatic backups. This scope cannot see any of Jo's real Drive
-  files. (If she connected before this scope existed, the next connect shows
-  one extra consent checkbox — approve once.)
+  files.
+
+**After any scope addition**: the next **Connect & sync now** shows Google's
+consent screen again with the new checkboxes — approve once. If the sync
+status shows a ⚠ warning about reconnecting, that's the cue.
 
 ## How Drive auto-backup behaves
 
