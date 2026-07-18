@@ -58,6 +58,11 @@ export interface Block {
   content: string;
   /** Text color for text/task blocks (defaults to ink black). */
   color?: string;
+  /** Text styling for text/task blocks (defaults: 8pt, regular). */
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
   /** Image bytes for image blocks (stored as Blob in IndexedDB). */
   imageBlob?: Blob;
   /** Task blocks only. */

@@ -51,6 +51,8 @@ interface Ctx {
   doc: PDFDocument;
   font: PDFFont;
   bold: PDFFont;
+  italic: PDFFont;
+  boldItalic: PDFFont;
   pages: Page[];
   pdfPages: PDFPage[];
   year: number;
@@ -566,27 +568,43 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
       }
       continue;
     }
-    const size = 9;
+    // Match the app's text styling: size, bold/italic variant, underline.
+    const size = (b.fontSize ?? 8) * 1.125;
+    const lineH = size * 1.78;
+    const blockFont = b.bold
+      ? b.italic ? ctx.boldItalic : ctx.bold
+      : b.italic ? ctx.italic : ctx.font;
     const textColor = b.color ? hex(b.color) : INK_BLACK;
     const prefix = b.type === "task" ? (b.checked ? "[x] " : "[ ] ") : "";
+    const drawLine = (line: string, yCursor: number) => {
+      page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: blockFont, color: textColor });
+      if (b.underline) {
+        page.drawLine({
+          start: { x: px(b.x + 4), y: py(yCursor) - 1.5 },
+          end: { x: px(b.x + 4) + blockFont.widthOfTextAtSize(line, size), y: py(yCursor) - 1.5 },
+          thickness: 0.7,
+          color: textColor,
+        });
+      }
+    };
     // Preserve the user's line breaks; wrap each source line independently.
-    let yCursor = b.y + 14;
+    let yCursor = b.y + size * 1.55;
     outer: for (const srcLine of safe(prefix + b.content).split("\n")) {
       let line = "";
       for (const word of srcLine.split(/[ \t]+/)) {
         const probe = line ? `${line} ${word}` : word;
-        if (ctx.font.widthOfTextAtSize(probe, size) > (b.w - 10) * S && line) {
-          page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: textColor });
+        if (blockFont.widthOfTextAtSize(probe, size) > (b.w - 10) * S && line) {
+          drawLine(line, yCursor);
           line = word;
-          yCursor += 16;
+          yCursor += lineH;
           if (yCursor > b.y + b.h) break outer;
         } else {
           line = probe;
         }
       }
       if (line) {
-        page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: ctx.font, color: textColor });
-        yCursor += 16;
+        drawLine(line, yCursor);
+        yCursor += lineH;
         if (yCursor > b.y + b.h) break;
       }
     }
@@ -656,6 +674,8 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
   doc.setTitle(`${planner.title} — Jo's Planner`);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const boldItalic = await doc.embedFont(StandardFonts.HelveticaBoldOblique);
 
   const group = <T extends { pageId: string }>(rows: T[]) => {
     const m = new Map<string, T[]>();
@@ -677,6 +697,8 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
     doc,
     font,
     bold,
+    italic,
+    boldItalic,
     pages,
     pdfPages: [],
     year: planner.year,

@@ -52,6 +52,9 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
 
   const setTextColor = (color: string) =>
     void updateBlock(block, { ...block, color, categoryId: undefined, updatedAt: Date.now() });
+  const patchStyle = (patch: Partial<Block>) =>
+    void updateBlock(block, { ...block, ...patch, updatedAt: Date.now() });
+  const fontSize = block.fontSize ?? TEXT_SIZE_PT;
   const dragState = useRef<{ startX: number; startY: number; orig: Block; mode: "move" | "resize" } | null>(null);
 
   const commitDrag = (e: PointerEvent | React.PointerEvent) => {
@@ -177,10 +180,16 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             suppressContentEditableWarning
             onBlur={saveText}
             onPointerDown={(e) => editing && e.stopPropagation()}
-            className={`h-full w-full whitespace-pre-wrap break-words font-[500] leading-snug ${
+            className={`h-full w-full whitespace-pre-wrap break-words leading-snug ${
               editing ? "cursor-text bg-white/70 ring-1 ring-blue-300" : ""
             } ${block.type === "task" && block.checked ? "line-through opacity-60" : ""}`}
-            style={{ fontSize: TEXT_SIZE_PT * 1.9 * scale, color: block.color ?? "#0f172a" }}
+            style={{
+              fontSize: fontSize * 1.9 * scale,
+              color: block.color ?? "#0f172a",
+              fontWeight: block.bold ? 700 : 500,
+              fontStyle: block.italic ? "italic" : undefined,
+              textDecoration: block.underline ? "underline" : undefined,
+            }}
           >
             {block.content}
           </div>
@@ -195,9 +204,13 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             onPointerMove={onDragMove}
             onPointerUp={(e) => commitDrag(e)}
           />
-          <div className="absolute -top-8 left-0 flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          <div
+            className="absolute left-0 flex flex-col items-start gap-0.5"
+            style={{ top: block.type !== "image" ? "-3.6rem" : "-2rem" }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             {block.type !== "image" && (
-              <>
+              <div className="flex items-center gap-1 rounded bg-white/90 px-1 py-0.5 shadow-sm">
                 {swatches.map((s) => (
                   <button
                     key={s.color}
@@ -212,28 +225,77 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
                     style={{ background: s.color }}
                   />
                 ))}
+                {/* relative wrapper: the invisible input sits HERE, so the
+                    browser anchors its color popup at the box, not at (0,0) */}
+                <span className="relative inline-flex">
+                  <button
+                    title="Pick any text color"
+                    data-text-color-custom
+                    onClick={() => customColorRef.current?.click()}
+                    className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-400 bg-white text-[10px] font-bold leading-none text-slate-700"
+                  >
+                    +
+                  </button>
+                  <input
+                    ref={customColorRef}
+                    type="color"
+                    defaultValue={lastCustom ?? "#0f172a"}
+                    className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
+                    onChange={(e) => {
+                      const c = e.target.value;
+                      localStorage.setItem(LAST_CUSTOM_KEY, c);
+                      setLastCustom(c);
+                      setTextColor(c);
+                    }}
+                  />
+                </span>
+                <span className="mx-0.5 h-4 w-px bg-slate-300" />
                 <button
-                  title="Pick any text color"
-                  data-text-color-custom
-                  onClick={() => customColorRef.current?.click()}
-                  className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-400 bg-white text-[10px] font-bold leading-none text-slate-700"
+                  data-font-action="smaller"
+                  title="Smaller text"
+                  onClick={() => patchStyle({ fontSize: Math.max(5, fontSize - 1) })}
+                  className="rounded px-1 text-[12px] font-bold text-slate-700 hover:bg-slate-200"
                 >
-                  +
+                  −
                 </button>
-                <input
-                  ref={customColorRef}
-                  type="color"
-                  defaultValue={lastCustom ?? "#0f172a"}
-                  className="hidden"
-                  onChange={(e) => {
-                    const c = e.target.value;
-                    localStorage.setItem(LAST_CUSTOM_KEY, c);
-                    setLastCustom(c);
-                    setTextColor(c);
-                  }}
-                />
-              </>
+                <span data-font-size className="min-w-5 text-center text-[11px] font-semibold text-slate-700">
+                  {fontSize}
+                </span>
+                <button
+                  data-font-action="larger"
+                  title="Larger text"
+                  onClick={() => patchStyle({ fontSize: Math.min(28, fontSize + 1) })}
+                  className="rounded px-1 text-[12px] font-bold text-slate-700 hover:bg-slate-200"
+                >
+                  ＋
+                </button>
+                <button
+                  data-font-action="bold"
+                  title="Bold"
+                  onClick={() => patchStyle({ bold: !block.bold })}
+                  className={`rounded px-1 text-[12px] font-extrabold ${block.bold ? "bg-slate-300" : "hover:bg-slate-200"}`}
+                >
+                  B
+                </button>
+                <button
+                  data-font-action="italic"
+                  title="Italic"
+                  onClick={() => patchStyle({ italic: !block.italic })}
+                  className={`rounded px-1.5 text-[12px] italic ${block.italic ? "bg-slate-300" : "hover:bg-slate-200"}`}
+                >
+                  I
+                </button>
+                <button
+                  data-font-action="underline"
+                  title="Underline"
+                  onClick={() => patchStyle({ underline: !block.underline })}
+                  className={`rounded px-1 text-[12px] underline ${block.underline ? "bg-slate-300" : "hover:bg-slate-200"}`}
+                >
+                  U
+                </button>
+              </div>
             )}
+            <div className="flex items-center gap-1">
             <button
               className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold text-white"
               onClick={() => copyBlockToClipboard(block)}
@@ -270,6 +332,7 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             >
               Done
             </button>
+            </div>
           </div>
         </>
       )}

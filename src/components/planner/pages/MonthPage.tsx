@@ -52,7 +52,7 @@ export default function MonthPage({ page }: { page: Page }) {
           {cells.map((day, i) => (
             <div
               key={i}
-              className="border-r-[0.14cqw] border-b-[0.14cqw] border-black p-[0.4cqw] [&:nth-child(7n)]:border-r-0"
+              className="min-w-0 overflow-hidden border-r-[0.14cqw] border-b-[0.14cqw] border-black p-[0.4cqw] [&:nth-child(7n)]:border-r-0"
               data-date={day ? `${year}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` : undefined}
             >
               {day && (

@@ -41,6 +41,12 @@ async function seed() {
     id: "b1", pageId: wk28.id, type: "task", x: 620, y: 160, w: 240, h: 60, z: 1,
     content: "water the plants and feed the fish", checked: false, createdAt: 1, updatedAt: 1,
   });
+  // styled text exercises the bold-italic/underline/fontSize PDF path
+  await db.blocks.add({
+    id: "b-styled", pageId: wk28.id, type: "text", x: 80, y: 400, w: 300, h: 80, z: 2,
+    content: "Big bold reminder", color: "#7400B3", fontSize: 14, bold: true,
+    italic: true, underline: true, createdAt: 1, updatedAt: 1,
+  });
   await db.habits.add({ id: "h1", plannerId: PLANNER_ID, name: "Walk", cadence: "daily", order: 0, active: true });
   await db.habitChecks.add({ id: "c1", habitId: "h1", date: "2026-07-08", checked: true });
   await db.events.add({
