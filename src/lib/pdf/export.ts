@@ -18,6 +18,7 @@ import { currentWeekPageIndex, preferOriginalIndex } from "@/lib/planner/navigat
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import { PT_TO_UNITS, HIGHLIGHTER_OPACITY } from "@/lib/ink/tools";
+import { formatTime } from "@/lib/settings";
 
 /** US Letter — aspect 0.773 vs the logical page's 0.769: near-perfect fit. */
 const PT_W = 612;
@@ -257,7 +258,9 @@ function drawDayMarks(
     const rowH = size + 3;
     const yTop = compact ? box.y + 12 + i * rowH : box.y + box.h - (max - i) * rowH - 4;
     const color = ctx.categoryColor.get(e.categoryId ?? "") ?? (e.kind === "birthday" ? "#f2599a" : "#3fa9f5");
-    const label = safe(`${e.kind === "birthday" ? "* " : ""}${e.startTime ? e.startTime + " " : ""}${e.title}`);
+    const label = safe(
+      `${e.kind === "birthday" ? "* " : ""}${e.startTime ? formatTime(e.startTime) + " " : ""}${e.title}`
+    );
     const w = Math.min(ctx.font.widthOfTextAtSize(label, size) + 4, (box.w - 8) * S);
     page.drawRectangle({
       x: px(box.x + 3),

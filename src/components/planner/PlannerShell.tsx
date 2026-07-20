@@ -19,11 +19,14 @@ import {
   duplicatePage,
   getClipboardBlock,
   hasPageClipboard,
+  hasSelectionClipboard,
   makeImageBlock,
   makeTextBlock,
   pasteClipboardBlock,
   pastePageAfter,
+  pasteSelectionAt,
 } from "@/lib/blocks/actions";
+import { getTimeFormat, setTimeFormat as persistTimeFormat, type TimeFormat } from "@/lib/settings";
 import { ensureStarterCategories } from "@/lib/categories/actions";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
@@ -61,8 +64,18 @@ export default function PlannerShell() {
   const [showAddPage, setShowAddPage] = useState(false);
   const [addPageAnchor, setAddPageAnchor] = useState<string | null>(null);
   const [newPageName, setNewPageName] = useState("");
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; pageId: string; label: string } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    pageId: string;
+    label: string;
+    /** click point in page-logical coords (for Paste selection here). */
+    pageX: number;
+    pageY: number;
+  } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [timeFormat, setTimeFormatState] = useState<TimeFormat>("12h");
+  useEffect(() => setTimeFormatState(getTimeFormat()), []);
 
   // Layout Options (Jo's Drawboard defaults: Single Page + Fit to Page)
   const [viewSettings, setViewSettings] = useState<ViewSettings>(DEFAULT_VIEW_SETTINGS);
@@ -324,6 +337,11 @@ export default function PlannerShell() {
       setSelectedBlockId,
       selection,
       setSelection,
+      timeFormat,
+      setTimeFormat: (f: TimeFormat) => {
+        persistTimeFormat(f);
+        setTimeFormatState(f);
+      },
       currentPageId,
       jumpToDate: (iso: string) => {
         const i = currentWeekPageIndex(pagesRef.current, iso);
@@ -338,7 +356,7 @@ export default function PlannerShell() {
       },
       flipPage,
     }),
-    [planner?.id, planner?.year, tool, penColor, penWidth, selectedBlockId, selection, currentPageId, jumpToIndex, flipPage]
+    [planner?.id, planner?.year, tool, penColor, penWidth, selectedBlockId, selection, timeFormat, currentPageId, jumpToIndex, flipPage]
   );
 
   const jumpToMonth = useCallback(
@@ -539,7 +557,14 @@ export default function PlannerShell() {
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setConfirmDelete(false);
-                    setCtxMenu({ x: e.clientX, y: e.clientY, pageId: page.id, label: page.label });
+                    const canvas = (e.currentTarget as HTMLElement).querySelector("canvas[data-ink-canvas]");
+                    const r = canvas?.getBoundingClientRect();
+                    const s = r ? PAGE_W / r.width : 1;
+                    setCtxMenu({
+                      x: e.clientX, y: e.clientY, pageId: page.id, label: page.label,
+                      pageX: r ? (e.clientX - r.left) * s : PAGE_W / 2,
+                      pageY: r ? (e.clientY - r.top) * s : PAGE_H / 2,
+                    });
                   }}
                 >
                   <div className="relative overflow-hidden rounded-md" style={{ containerType: "inline-size" }}>
@@ -572,7 +597,14 @@ export default function PlannerShell() {
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setConfirmDelete(false);
-                    setCtxMenu({ x: e.clientX, y: e.clientY, pageId: page.id, label: page.label });
+                    const canvas = (e.currentTarget as HTMLElement).querySelector("canvas[data-ink-canvas]");
+                    const r = canvas?.getBoundingClientRect();
+                    const s = r ? PAGE_W / r.width : 1;
+                    setCtxMenu({
+                      x: e.clientX, y: e.clientY, pageId: page.id, label: page.label,
+                      pageX: r ? (e.clientX - r.left) * s : PAGE_W / 2,
+                      pageY: r ? (e.clientY - r.top) * s : PAGE_H / 2,
+                    });
                   }}
                 >
                   <div
@@ -634,6 +666,16 @@ export default function PlannerShell() {
                     setCtxMenu(null);
                   },
                 },
+                ...(hasSelectionClipboard()
+                  ? [{
+                      key: "paste-selection",
+                      label: "⬚ Paste selection here",
+                      run: () => {
+                        void pasteSelectionAt(ctxMenu.pageId, ctxMenu.pageX, ctxMenu.pageY);
+                        setCtxMenu(null);
+                      },
+                    }]
+                  : []),
                 ...(hasPageClipboard()
                   ? [{
                       key: "paste",

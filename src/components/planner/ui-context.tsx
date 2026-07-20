@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { ToolId } from "@/lib/ink/tools";
+import type { TimeFormat } from "@/lib/settings";
 
 /** Area selection made with the ⬚ tool: ink strokes + blocks inside a box. */
 export interface AreaSelection {
@@ -37,6 +38,9 @@ export interface PlannerUI {
   /** Active ⬚ area selection, if any. */
   selection: AreaSelection | null;
   setSelection: (s: AreaSelection | null) => void;
+  /** How event times display: "2:00 PM" vs "14:00". */
+  timeFormat: TimeFormat;
+  setTimeFormat: (f: TimeFormat) => void;
 }
 
 export const PlannerUIContext = createContext<PlannerUI | null>(null);

@@ -47,8 +47,14 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   })();
   const customColorRef = useRef<HTMLInputElement>(null);
   const scale = pageWidth / PAGE_W;
-  const [editing, setEditing] = useState(false);
+  // A brand-new empty text box opens ready to type — no double-click needed.
+  const [editing, setEditing] = useState(
+    () => block.type !== "image" && block.content === "" && Date.now() - block.createdAt < 3000
+  );
   const textRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (editing) setTimeout(() => textRef.current?.focus(), 0);
+  }, [editing]);
 
   const setTextColor = (color: string) =>
     void updateBlock(block, { ...block, color, categoryId: undefined, updatedAt: Date.now() });
@@ -107,6 +113,13 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   const saveText = () => {
     const el = textRef.current;
     const text = el?.innerText ?? "";
+    // Abandoned empty box → remove it instead of leaving invisible litter.
+    if (!text.trim() && !block.content.trim() && block.type === "text") {
+      setEditing(false);
+      ui.setSelectedBlockId(null);
+      void deleteBlock(block);
+      return;
+    }
     // Shrink the box to fit its text (Jo: a full-size empty box blocks the
     // pen near the words). Measure at natural size, then persist.
     let fitted: Partial<Block> = {};
@@ -141,7 +154,9 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
         width: (editing ? Math.max(block.w, 280) : block.w) * scale,
         height: (editing ? Math.max(block.h, 110) : block.h) * scale,
         zIndex: block.z,
-        pointerEvents: ui.tool === "select" ? "auto" : "none",
+        // text mode: the selected/just-created box stays interactive for typing
+        pointerEvents:
+          ui.tool === "select" || (ui.tool === "text" && (selected || editing)) ? "auto" : "none",
         outline: selected ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
         transform: undefined,
       }}
@@ -358,6 +373,12 @@ export default function BlocksLayer({ pageId }: { pageId: string }) {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (ui.tool === "text") {
+      // First tap-away commits the box being edited; the NEXT tap places a
+      // new one. The tool itself never changes (Jo switches when she's ready).
+      if (ui.selectedBlockId) {
+        ui.setSelectedBlockId(null);
+        return;
+      }
       const rect = hostRef.current!.getBoundingClientRect();
       const scale = PAGE_W / rect.width;
       // New text inherits the active pen color (Jo writes in category colors)
@@ -370,7 +391,6 @@ export default function BlocksLayer({ pageId }: { pageId: string }) {
         ui.penColor
       );
       void addBlock(block).then(() => {
-        ui.setTool("select");
         ui.setSelectedBlockId(block.id);
       });
     } else if (ui.tool === "select") {

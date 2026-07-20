@@ -8,15 +8,18 @@ import {
   addBlock,
   carryTaskForward,
   copyPageToClipboard,
+  copySelectionToClipboard,
   deletePage,
   deleteSelectionContents,
   duplicatePage,
   duplicateSelectionContents,
+  hasSelectionClipboard,
   makeTextBlock,
   moveSelectionContents,
   addStroke,
   deleteStrokes,
   pastePageAfter,
+  pasteSelectionAt,
 } from "./actions";
 import * as history from "@/lib/history";
 
@@ -265,6 +268,47 @@ describe("⬚ area selection: move / delete / duplicate as single undo steps", (
     expect(await db.strokes.count()).toBe(1);
     expect(await db.blocks.count()).toBe(1);
     expect(await db.strokes.get("s1")).toBeDefined(); // original untouched
+  });
+});
+
+describe("⬚ selection cut/copy → paste on another page", () => {
+  beforeEach(seed);
+
+  it("cut moves ink + blocks to another page centered at the paste point, all undoable", async () => {
+    const pages = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
+    const src = pages.find((p) => p.dateStart === "2026-07-06")!;
+    const dst = pages.find((p) => p.dateStart === "2026-08-03")!;
+    await addStroke({
+      id: "mv1", pageId: src.id, tool: "pen", color: "#000", width: 1, opacity: 1,
+      points: [[100, 100, 0.5], [140, 120, 0.5]], createdAt: 1,
+    });
+    const block = makeTextBlock(src.id, 100, 130, "move me");
+    await addBlock(block);
+
+    const sel = { pageId: src.id, strokeIds: ["mv1"], blockIds: [block.id] };
+    await copySelectionToClipboard(sel, true); // cut
+    expect(hasSelectionClipboard()).toBe(true);
+    expect(await db.strokes.where("pageId").equals(src.id).count()).toBe(0);
+    expect(await db.blocks.where("pageId").equals(src.id).count()).toBe(0);
+
+    const pasted = await pasteSelectionAt(dst.id, 500, 650);
+    expect(pasted?.pageId).toBe(dst.id);
+    const movedStroke = (await db.strokes.where("pageId").equals(dst.id).toArray())[0];
+    const movedBlock = (await db.blocks.where("pageId").equals(dst.id).toArray())[0];
+    expect(movedStroke).toBeDefined();
+    expect(movedBlock.content).toBe("move me");
+    // relative geometry preserved: block sits 30 units below stroke start
+    expect(Math.round(movedBlock.y - movedStroke.points[0][1])).toBe(30);
+    // pasted roughly centered on (500, 650)
+    expect(movedStroke.points[0][0]).toBeGreaterThan(300);
+    expect(movedStroke.points[0][0]).toBeLessThan(600);
+
+    // one undo removes the paste; another restores the cut originals
+    await history.undo();
+    expect(await db.strokes.where("pageId").equals(dst.id).count()).toBe(0);
+    await history.undo();
+    expect(await db.strokes.where("pageId").equals(src.id).count()).toBe(1);
+    expect((await db.blocks.where("pageId").equals(src.id).toArray())[0].content).toBe("move me");
   });
 });
 

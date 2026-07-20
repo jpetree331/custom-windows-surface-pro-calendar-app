@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 import {
+  copySelectionToClipboard,
   deleteSelectionContents,
   duplicateSelectionContents,
   moveSelectionContents,
@@ -17,7 +18,50 @@ import { usePlannerUI } from "./ui-context";
 export default function SelectionOverlay() {
   const ui = usePlannerUI();
   const hostRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
+
+  /** Paint the selection's actual content (ink crop + block sketches) into
+   *  the ghost canvas so Jo sees exactly what she's placing while dragging. */
+  const buildGhost = () => {
+    const ghost = ghostRef.current;
+    const sel = ui.selection;
+    const host = hostRef.current;
+    if (!ghost || !sel || !host) return;
+    const stack = host.parentElement;
+    const ink = stack?.querySelector<HTMLCanvasElement>("canvas[data-ink-canvas]");
+    const gw = Math.max(1, Math.round(sel.rect.w * (pageWidth / PAGE_W)));
+    const gh = Math.max(1, Math.round(sel.rect.h * (pageWidth / PAGE_W)));
+    ghost.width = gw;
+    ghost.height = gh;
+    const ctx = ghost.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, gw, gh);
+    if (ink && ink.width > 0) {
+      const srcScale = ink.width / PAGE_W; // device px per logical unit
+      ctx.drawImage(
+        ink,
+        sel.rect.x * srcScale, sel.rect.y * srcScale,
+        sel.rect.w * srcScale, sel.rect.h * srcScale,
+        0, 0, gw, gh
+      );
+    }
+    // blocks: sketch position + first line of text
+    for (const id of sel.blockIds) {
+      const el = stack?.querySelector<HTMLElement>(`[data-block-id="${id}"]`);
+      if (!el) continue;
+      const er = el.getBoundingClientRect();
+      const hr = host.getBoundingClientRect();
+      const sx = pageWidth / PAGE_W;
+      const bx = er.left - hr.left - sel.rect.x * sx;
+      const by = er.top - hr.top - sel.rect.y * sx;
+      ctx.fillStyle = "rgba(148,163,184,0.25)";
+      ctx.fillRect(bx, by, er.width, er.height);
+      ctx.fillStyle = "#334155";
+      ctx.font = `${Math.max(9, 11 * sx * 2)}px sans-serif`;
+      ctx.fillText((el.innerText || "").split("\n")[0].slice(0, 40), bx + 3, by + 12);
+    }
+  };
   const [pageWidth, setPageWidth] = useState(0);
   useEffect(() => {
     const el = hostRef.current;
@@ -65,6 +109,7 @@ export default function SelectionOverlay() {
         onPointerDown={(e) => {
           e.stopPropagation();
           drag.current = { startX: e.clientX, startY: e.clientY, moved: false };
+          buildGhost();
           try {
             (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
           } catch {
@@ -75,16 +120,25 @@ export default function SelectionOverlay() {
           const d = drag.current;
           if (!d) return;
           d.moved = true;
-          (e.currentTarget as HTMLElement).style.transform =
-            `translate(${e.clientX - d.startX}px, ${e.clientY - d.startY}px)`;
+          const el = e.currentTarget as HTMLElement;
+          el.style.transform = `translate(${e.clientX - d.startX}px, ${e.clientY - d.startY}px)`;
+          if (ghostRef.current) ghostRef.current.style.opacity = "0.75";
         }}
         onPointerUp={(e) => {
           const d = drag.current;
           drag.current = null;
           (e.currentTarget as HTMLElement).style.transform = "";
+          if (ghostRef.current) ghostRef.current.style.opacity = "0";
           if (d?.moved) void commitMove(e.clientX - d.startX, e.clientY - d.startY);
         }}
       >
+        {/* ghost preview of the actual contents — visible while dragging */}
+        <canvas
+          ref={ghostRef}
+          data-selection-ghost
+          className="pointer-events-none absolute inset-0 h-full w-full transition-opacity"
+          style={{ opacity: 0 }}
+        />
         <div
           className="absolute -top-9 left-0 flex gap-1"
           onPointerDown={(e) => e.stopPropagation()}
@@ -92,6 +146,25 @@ export default function SelectionOverlay() {
           <span className="rounded bg-slate-800/90 px-1.5 py-0.5 text-[11px] font-semibold text-white">
             {sel.strokeIds.length + sel.blockIds.length} selected
           </span>
+          <button
+            data-selection-action="copy"
+            className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+            title="Copy — then right-click any page and Paste selection"
+            onClick={() => void copySelectionToClipboard(ui.selection!, false)}
+          >
+            Copy
+          </button>
+          <button
+            data-selection-action="cut"
+            className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+            title="Cut — then right-click any page and Paste selection"
+            onClick={() => {
+              void copySelectionToClipboard(ui.selection!, true);
+              ui.setSelection(null);
+            }}
+          >
+            ✂ Cut
+          </button>
           <button
             data-selection-action="duplicate"
             className="rounded bg-blue-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"

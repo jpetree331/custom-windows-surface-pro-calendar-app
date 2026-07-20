@@ -257,6 +257,77 @@ function clearSelectionPathCache(sel: AreaSelectionRef) {
   clearPathCache(sel.strokeIds);
 }
 
+/** Clipboard for ⬚ selections — contents normalized to their bbox origin. */
+let selectionClipboard: { strokes: Stroke[]; blocks: Block[]; w: number; h: number } | null = null;
+
+export function hasSelectionClipboard(): boolean {
+  return selectionClipboard !== null;
+}
+
+/** Copy (or cut) everything in the selection for pasting on ANY page. */
+export async function copySelectionToClipboard(sel: AreaSelectionRef, cut: boolean) {
+  const { strokes, blocks } = await selectionRows(sel);
+  if (strokes.length === 0 && blocks.length === 0) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const s of strokes) for (const [x, y] of s.points) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  for (const b of blocks) {
+    if (b.x < minX) minX = b.x; if (b.x + b.w > maxX) maxX = b.x + b.w;
+    if (b.y < minY) minY = b.y; if (b.y + b.h > maxY) maxY = b.y + b.h;
+  }
+  selectionClipboard = {
+    strokes: strokes.map((s) => ({
+      ...s,
+      points: s.points.map(([x, y, p]) => [x - minX, y - minY, p] as [number, number, number]),
+    })),
+    blocks: blocks.map((b) => ({ ...b, x: b.x - minX, y: b.y - minY })),
+    w: maxX - minX,
+    h: maxY - minY,
+  };
+  if (cut) await deleteSelectionContents(sel);
+}
+
+/** Paste the copied selection centered at (x, y) on `pageId` — one undo step. */
+export async function pasteSelectionAt(pageId: string, x: number, y: number): Promise<AreaSelectionRef | null> {
+  const clip = selectionClipboard;
+  if (!clip) return null;
+  const now = Date.now();
+  const ox = Math.max(0, Math.min(PAGE_W - clip.w, x - clip.w / 2));
+  const oy = Math.max(0, Math.min(PAGE_H - clip.h, y - clip.h / 2));
+  const strokes = clip.strokes.map((s) => ({
+    ...s,
+    id: crypto.randomUUID(),
+    pageId,
+    points: s.points.map(([px, py, p]) => [px + ox, py + oy, p] as [number, number, number]),
+    createdAt: now,
+  }));
+  const blocks = clip.blocks.map((b) => ({
+    ...b,
+    id: crypto.randomUUID(),
+    pageId,
+    x: b.x + ox,
+    y: b.y + oy,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  await db.transaction("rw", db.strokes, db.blocks, async () => {
+    await db.strokes.bulkAdd(strokes);
+    await db.blocks.bulkAdd(blocks);
+  });
+  for (const s of strokes) await queueSync("strokes", s.id, "put");
+  for (const b of blocks) await queueSync("blocks", b.id, "put");
+  history.push({
+    kind: "batch",
+    entries: [
+      ...strokes.map((stroke) => ({ kind: "addStroke" as const, stroke })),
+      ...blocks.map((block) => ({ kind: "addBlock" as const, block })),
+    ],
+  });
+  return { pageId, strokeIds: strokes.map((s) => s.id), blockIds: blocks.map((b) => b.id) };
+}
+
 /** In-app clipboard for whole pages (content travels with the page). */
 let pageClipboard: { page: Page; strokes: Stroke[]; blocks: Block[] } | null = null;
 

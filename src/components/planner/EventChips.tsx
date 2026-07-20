@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/db";
 import type { PlannerEvent } from "@/lib/db/types";
 import { usePlannerUI } from "./ui-context";
+import { formatTime } from "@/lib/settings";
 
 /** Colored event/birthday chips for one day cell (week + month templates). */
 export default function EventChips({
@@ -14,7 +15,7 @@ export default function EventChips({
   dayISO: string;
   compact?: boolean;
 }) {
-  const { plannerId } = usePlannerUI();
+  const { plannerId, timeFormat } = usePlannerUI();
   const events = useLiveQuery(
     // planner-scoped: a restored backup can leave a second same-year planner
     () =>
@@ -53,7 +54,7 @@ export default function EventChips({
               expanded ? "whitespace-normal break-words" : "truncate"
             }`}
             style={{ background: colorOf(e) }}
-            title={`${e.title}${e.startTime ? ` · ${e.startTime}` : ""}`}
+            title={`${e.title}${e.startTime ? ` · ${formatTime(e.startTime, timeFormat)}` : ""}`}
             onPointerDown={(ev) => ev.stopPropagation()}
             onClick={(ev) => {
               ev.stopPropagation();
@@ -61,7 +62,7 @@ export default function EventChips({
             }}
           >
             {e.kind === "birthday" ? "🎂 " : ""}
-            {e.startTime && !compact ? `${e.startTime} ` : ""}
+            {e.startTime && !compact ? `${formatTime(e.startTime, timeFormat)} ` : ""}
             {e.title}
           </div>
         );

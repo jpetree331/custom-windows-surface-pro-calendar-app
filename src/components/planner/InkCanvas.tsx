@@ -13,6 +13,7 @@ import {
   RECT_WIDTH_PT,
 } from "@/lib/ink/tools";
 import { drawStroke, renderStrokes, strokesHitByEraser } from "@/lib/ink/render";
+import { strokesInRect } from "@/lib/ink/select";
 import { addStroke, deleteStrokes } from "@/lib/blocks/actions";
 import { usePlannerUI } from "./ui-context";
 
@@ -199,11 +200,9 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       marquee = null;
       repaintLive();
       if (rect.w < 8 || rect.h < 8) return; // a tap, not a box
-      const inRect = (x: number, y: number) =>
-        x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
-      const strokeIds = strokesRef.current
-        .filter((s) => s.points.some(([x, y]) => inRect(x, y)))
-        .map((s) => s.id);
+      // Line-aware: whole letters/lines, without grabbing neighbors whose
+      // tails merely dip into the box (see strokesInRect).
+      const strokeIds = strokesInRect(strokesRef.current, rect);
       const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
       const blockIds = blocks
         .filter((bl) => bl.x < rect.x + rect.w && bl.x + bl.w > rect.x && bl.y < rect.y + rect.h && bl.y + bl.h > rect.y)

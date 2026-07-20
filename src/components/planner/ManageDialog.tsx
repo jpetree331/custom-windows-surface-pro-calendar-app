@@ -7,6 +7,7 @@ import { addHabit, deleteHabit, renameHabit, setHabitCadence } from "@/lib/habit
 import { addCategory, deleteCategory, updateCategory } from "@/lib/categories/actions";
 import GooglePanel from "./GooglePanel";
 import BackupPanel from "./BackupPanel";
+import { usePlannerUI } from "./ui-context";
 
 /** Settings dialog: manage habits (daily/weekly) and color categories. */
 export default function ManageDialog({
@@ -29,6 +30,7 @@ export default function ManageDialog({
   const [newHabit, setNewHabit] = useState("");
   const [newCat, setNewCat] = useState("");
   const [newCatColor, setNewCatColor] = useState("#3fa9f5");
+  const ui = usePlannerUI();
 
   return (
     <div
@@ -45,6 +47,27 @@ export default function ManageDialog({
           <button onClick={onClose} className="rounded px-2 text-xl hover:bg-slate-100" data-action="close-manage">
             ×
           </button>
+        </div>
+
+        <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Time format</h3>
+        <div className="mb-3 flex gap-4" data-time-format>
+          {(
+            [
+              ["12h", "AM / PM (2:00 PM)"],
+              ["24h", "24-hour (14:00)"],
+            ] as const
+          ).map(([val, label]) => (
+            <label key={val} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="radio"
+                name="timeFormat"
+                data-time-format-option={val}
+                checked={ui.timeFormat === val}
+                onChange={() => ui.setTimeFormat(val)}
+              />
+              {label}
+            </label>
+          ))}
         </div>
 
         <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Habits</h3>
