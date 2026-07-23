@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PEN_COLORS, HIGHLIGHTER_WIDTH_PT, ERASER_RADIUS_PT, type ToolId } from "@/lib/ink/tools";
 import * as history from "@/lib/history";
+import { hasSelectionClipboard, onSelectionClipboardChange } from "@/lib/blocks/actions";
 import type { ViewSettings } from "@/lib/planner/view-settings";
 import { usePlannerUI } from "./ui-context";
 
@@ -13,6 +14,7 @@ export default function Toolbar({
   onAddPage,
   onOpenManage,
   onExport,
+  onPasteSelection,
   viewSettings,
   onChangeViewSettings,
 }: {
@@ -21,6 +23,7 @@ export default function Toolbar({
   onAddPage: () => void;
   onOpenManage: () => void;
   onExport: (scope: "year" | "page") => void;
+  onPasteSelection: () => void;
   viewSettings: ViewSettings;
   onChangeViewSettings: (s: ViewSettings) => void;
 }) {
@@ -29,6 +32,7 @@ export default function Toolbar({
   const fileRef = useRef<HTMLInputElement>(null);
   const [, force] = useState(0);
   useEffect(() => history.onHistoryChange(() => force((n) => n + 1)), []);
+  useEffect(() => onSelectionClipboardChange(() => force((n) => n + 1)), []);
 
   // Per-slot palette customization (Jo's colors are the defaults).
   const [palette, setPalette] = useState(PEN_COLORS);
@@ -94,6 +98,15 @@ export default function Toolbar({
     >
       {toolBtn("select", "🖐", "Move text & image boxes (touch: swipe to flip pages)")}
       {toolBtn("marquee", "⬚", "Select area — drag a box around ink & boxes to move, copy, or delete them")}
+      <button
+        data-action="paste-selection"
+        title="Paste the cut/copied selection onto this page (Ctrl+V)"
+        disabled={!hasSelectionClipboard()}
+        onClick={onPasteSelection}
+        className="flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100 disabled:opacity-30"
+      >
+        📋
+      </button>
       <span className="mx-1 h-6 w-px bg-slate-300" />
       {palette.map((p, i) => {
         const active = ui.tool === "pen" && ui.penColor === p.color && ui.penWidth === p.width;

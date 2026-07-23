@@ -72,6 +72,7 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
     let points: [number, number, number][] = [];
     let erased = new Map<string, Stroke>();
     let pointerId = -1;
+    let downTime = 0;
     let marquee: { start: [number, number]; end: [number, number] } | null = null;
 
     const toLogical = (e: PointerEvent): [number, number, number] => {
@@ -155,6 +156,7 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       // pen / mouse (or any pointer in marquee mode) = ink or marquee
       drawing = true;
       pointerId = e.pointerId;
+      downTime = performance.now();
       capture(e.pointerId);
       uiRef.current.setPenActive(true);
       e.preventDefault();
@@ -224,6 +226,28 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       } else if (tool === "marquee") {
         await finishMarquee();
       } else if (points.length > 1) {
+        // A quick TAP on a block selects it to move (Jo: "click any item"),
+        // instead of leaving a dot of ink on top of it.
+        const isTap =
+          performance.now() - downTime < 350 &&
+          points.length <= 5 &&
+          Math.hypot(
+            points[points.length - 1][0] - points[0][0],
+            points[points.length - 1][1] - points[0][1]
+          ) < 8;
+        if (isTap && (tool === "pen" || tool === "highlighter")) {
+          const [tx, ty] = points[0];
+          const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
+          const hit = blocks
+            .filter((b) => tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h)
+            .sort((a, b) => b.z - a.z)[0];
+          if (hit) {
+            points = [];
+            repaintLive();
+            uiRef.current.setSelectedBlockId(hit.id);
+            return;
+          }
+        }
         const stroke: Stroke = { ...activeStroke(), id: crypto.randomUUID() };
         points = [];
         await addStroke(stroke);

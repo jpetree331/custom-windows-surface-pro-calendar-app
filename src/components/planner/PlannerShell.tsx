@@ -15,6 +15,7 @@ import {
   addBlankPage,
   addBlock,
   copyPageToClipboard,
+  copySelectionToClipboard,
   deletePage,
   duplicatePage,
   getClipboardBlock,
@@ -409,6 +410,20 @@ export default function PlannerShell() {
     setSelectedBlockId(block.id);
   }, []);
 
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+
+  /** Paste the ⬚ clipboard onto the page in view, centered, and SELECT the
+   *  result so it's visibly there and immediately draggable. */
+  const pasteSelectionCentered = useCallback(async () => {
+    if (!hasSelectionClipboard()) return false;
+    const pageId = viewportCenterPageId();
+    if (!pageId) return false;
+    const result = await pasteSelectionAt(pageId, PAGE_W / 2, PAGE_H / 2);
+    if (result) setSelection(result);
+    return !!result;
+  }, [viewportCenterPageId]);
+
   // Global clipboard + keyboard shortcuts.
   useEffect(() => {
     const isTyping = () => {
@@ -432,6 +447,12 @@ export default function PlannerShell() {
           }
         }
       }
+      // Ctrl+V pastes a cut/copied ⬚ selection (Jo: hotkeys must work too).
+      if (hasSelectionClipboard()) {
+        e.preventDefault();
+        void pasteSelectionCentered();
+        return;
+      }
       const text = e.clipboardData?.getData("text/plain") ?? "";
       const internal = getClipboardBlock();
       const pageId = viewportCenterPageId();
@@ -452,12 +473,23 @@ export default function PlannerShell() {
 
     const onKey = (e: KeyboardEvent) => {
       if (isTyping()) return;
+      const sel = selectionRef.current;
       if (e.ctrlKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
         void history.undo();
       } else if (e.ctrlKey && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
         e.preventDefault();
         void history.redo();
+      } else if (e.ctrlKey && e.key.toLowerCase() === "c" && sel) {
+        e.preventDefault();
+        void copySelectionToClipboard(sel, false);
+      } else if (e.ctrlKey && e.key.toLowerCase() === "x" && sel) {
+        e.preventDefault();
+        void copySelectionToClipboard(sel, true);
+        setSelection(null);
+      } else if (e.key === "Escape") {
+        setSelection(null);
+        setSelectedBlockId(null);
       }
     };
 
@@ -467,7 +499,7 @@ export default function PlannerShell() {
       window.removeEventListener("paste", onPaste);
       window.removeEventListener("keydown", onKey);
     };
-  }, [pasteImage]);
+  }, [pasteImage, pasteSelectionCentered]);
 
   const onAddImage = useCallback((file: File) => void pasteImage(file), [pasteImage]);
 
@@ -632,6 +664,7 @@ export default function PlannerShell() {
           onAddPage={() => setShowAddPage(true)}
           onOpenManage={() => setShowManage(true)}
           onExport={(scope) => void onExport(scope)}
+          onPasteSelection={() => void pasteSelectionCentered()}
           viewSettings={viewSettings}
           onChangeViewSettings={changeViewSettings}
         />
@@ -671,7 +704,9 @@ export default function PlannerShell() {
                       key: "paste-selection",
                       label: "⬚ Paste selection here",
                       run: () => {
-                        void pasteSelectionAt(ctxMenu.pageId, ctxMenu.pageX, ctxMenu.pageY);
+                        void pasteSelectionAt(ctxMenu.pageId, ctxMenu.pageX, ctxMenu.pageY).then(
+                          (result) => result && setSelection(result)
+                        );
                         setCtxMenu(null);
                       },
                     }]

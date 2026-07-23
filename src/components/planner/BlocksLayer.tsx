@@ -88,7 +88,8 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   };
 
   const startDrag = (e: React.PointerEvent, mode: "move" | "resize") => {
-    if (ui.tool !== "select" || editing) return;
+    // draggable in select mode, or whenever THIS block is selected (any tool)
+    if ((ui.tool !== "select" && !selected) || editing) return;
     e.stopPropagation();
     ui.setSelectedBlockId(block.id);
     dragState.current = { startX: e.clientX, startY: e.clientY, orig: block, mode };
@@ -153,10 +154,11 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
         // While editing, expand to a comfortable size; shrink-to-fit on Done.
         width: (editing ? Math.max(block.w, 280) : block.w) * scale,
         height: (editing ? Math.max(block.h, 110) : block.h) * scale,
-        zIndex: block.z,
-        // text mode: the selected/just-created box stays interactive for typing
+        // A SELECTED block rises above the ink canvas and stays interactive
+        // with ANY tool — tap-to-select (InkCanvas) then drag to move.
+        zIndex: selected ? 45 : block.z,
         pointerEvents:
-          ui.tool === "select" || (ui.tool === "text" && (selected || editing)) ? "auto" : "none",
+          ui.tool === "select" || selected || (ui.tool === "text" && editing) ? "auto" : "none",
         outline: selected ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
         transform: undefined,
       }}

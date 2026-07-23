@@ -259,9 +259,16 @@ function clearSelectionPathCache(sel: AreaSelectionRef) {
 
 /** Clipboard for ⬚ selections — contents normalized to their bbox origin. */
 let selectionClipboard: { strokes: Stroke[]; blocks: Block[]; w: number; h: number } | null = null;
+const selClipListeners = new Set<() => void>();
 
 export function hasSelectionClipboard(): boolean {
   return selectionClipboard !== null;
+}
+
+/** Subscribe UI (e.g. the toolbar Paste button) to clipboard availability. */
+export function onSelectionClipboardChange(fn: () => void): () => void {
+  selClipListeners.add(fn);
+  return () => selClipListeners.delete(fn);
 }
 
 /** Copy (or cut) everything in the selection for pasting on ANY page. */
@@ -286,11 +293,18 @@ export async function copySelectionToClipboard(sel: AreaSelectionRef, cut: boole
     w: maxX - minX,
     h: maxY - minY,
   };
+  selClipListeners.forEach((fn) => fn());
   if (cut) await deleteSelectionContents(sel);
 }
 
-/** Paste the copied selection centered at (x, y) on `pageId` — one undo step. */
-export async function pasteSelectionAt(pageId: string, x: number, y: number): Promise<AreaSelectionRef | null> {
+/** Paste the copied selection centered at (x, y) on `pageId` — one undo step.
+ *  Returns the pasted contents WITH their rect so the caller can select them
+ *  (visible feedback + immediately draggable). */
+export async function pasteSelectionAt(
+  pageId: string,
+  x: number,
+  y: number
+): Promise<(AreaSelectionRef & { rect: { x: number; y: number; w: number; h: number } }) | null> {
   const clip = selectionClipboard;
   if (!clip) return null;
   const now = Date.now();
@@ -325,7 +339,12 @@ export async function pasteSelectionAt(pageId: string, x: number, y: number): Pr
       ...blocks.map((block) => ({ kind: "addBlock" as const, block })),
     ],
   });
-  return { pageId, strokeIds: strokes.map((s) => s.id), blockIds: blocks.map((b) => b.id) };
+  return {
+    pageId,
+    strokeIds: strokes.map((s) => s.id),
+    blockIds: blocks.map((b) => b.id),
+    rect: { x: ox, y: oy, w: Math.max(clip.w, 20), h: Math.max(clip.h, 20) },
+  };
 }
 
 /** In-app clipboard for whole pages (content travels with the page). */
