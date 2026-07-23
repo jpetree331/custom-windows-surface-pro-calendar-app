@@ -28,6 +28,7 @@ import {
   pasteSelectionAt,
 } from "@/lib/blocks/actions";
 import { getTimeFormat, setTimeFormat as persistTimeFormat, type TimeFormat } from "@/lib/settings";
+import { PLANNER_SLUG } from "@/lib/branding";
 import { ensureStarterCategories } from "@/lib/categories/actions";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
@@ -542,7 +543,7 @@ export default function PlannerShell() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = scope === "year" ? `jos-planner-${planner?.year ?? ""}.pdf` : "jos-planner-page.pdf";
+      a.download = scope === "year" ? `${PLANNER_SLUG}-${planner?.year ?? ""}.pdf` : `${PLANNER_SLUG}-page.pdf`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     },

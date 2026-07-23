@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import PwaRegister from "@/components/PwaRegister";
+import { PLANNER_NAME } from "@/lib/branding";
 
 export const metadata: Metadata = {
-  title: "Jo's Planner",
+  title: PLANNER_NAME,
   description: "Pen-first, continuously-scrolling digital planner",
-  appleWebApp: { capable: true, title: "Jo's Planner", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: PLANNER_NAME, statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

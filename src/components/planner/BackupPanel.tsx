@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createBackup, restoreBackup, ensurePersistentStorage } from "@/lib/backup";
+import { PLANNER_SLUG } from "@/lib/branding";
 import { lastDriveBackupAt, recordDriveBackup } from "@/lib/backup-auto";
 import { getAccessToken, googleClientId } from "@/lib/google/auth";
 import { downloadDriveBackup, uploadDriveBackup } from "@/lib/google/drive";
@@ -57,7 +58,7 @@ export default function BackupPanel() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `jos-planner-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `${PLANNER_SLUG}-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
       setStatus(`Backup downloaded (${(blob.size / 1024 / 1024).toFixed(1)} MB). Keep it in OneDrive or Downloads.`);

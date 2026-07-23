@@ -1,9 +1,10 @@
 import type { MetadataRoute } from "next";
+import { PLANNER_NAME } from "@/lib/branding";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Jo's Planner",
-    short_name: "Jo's Planner",
+    name: PLANNER_NAME,
+    short_name: PLANNER_NAME,
     description: "Pen-first, continuously-scrolling digital planner",
     start_url: "/",
     display: "standalone",

@@ -3,6 +3,7 @@ import type { Page, Planner } from "@/lib/db/types";
 import { MONTH_NAMES, daysInMonth, toISO, weeksOfYear } from "./dates";
 import { PLANNER_YEAR, SECTIONS } from "./constants";
 import { STARTERS } from "@/lib/categories/actions";
+import { PLANNER_NAME } from "@/lib/branding";
 
 /**
  * Build the full 79-page planner for a year:
@@ -85,7 +86,7 @@ export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<
     p = {
       id: crypto.randomUUID(),
       year,
-      title: `Jo's Planner '${String(year).slice(2)}`,
+      title: `${PLANNER_NAME} '${String(year).slice(2)}`,
       settings: {},
       createdAt: Date.now(),
       updatedAt: Date.now(),
