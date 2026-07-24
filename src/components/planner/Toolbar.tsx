@@ -10,7 +10,6 @@ import { usePlannerUI } from "./ui-context";
 /** Bottom toolbar: pens, highlighter, eraser, text, rect, image, undo/redo, duplicate. */
 export default function Toolbar({
   onAddImage,
-  onDuplicatePage,
   onAddPage,
   onOpenManage,
   onExport,
@@ -19,7 +18,6 @@ export default function Toolbar({
   onChangeViewSettings,
 }: {
   onAddImage: (file: File) => void;
-  onDuplicatePage: () => void;
   onAddPage: () => void;
   onOpenManage: () => void;
   onExport: (scope: "year" | "page") => void;
@@ -98,18 +96,7 @@ export default function Toolbar({
       className="flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-t border-slate-300 bg-white px-2 py-0.5 shadow-[0_-2px_6px_rgba(0,0,0,0.08)]"
       style={{ touchAction: "manipulation" }}
     >
-      {toolBtn("select", "🖐", "Move text & image boxes (touch: swipe to flip pages)")}
-      {toolBtn("marquee", "⬚", "Select area — drag a box around ink & boxes to move, copy, or delete them")}
-      <button
-        data-action="paste-selection"
-        title="Paste the cut/copied selection onto this page (Ctrl+V)"
-        disabled={!hasSelectionClipboard()}
-        onClick={onPasteSelection}
-        className="flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100 disabled:opacity-30"
-      >
-        📋
-      </button>
-      <span className="mx-1 h-6 w-px bg-slate-300" />
+      {/* Jo's order: pens first (leftmost), then tools */}
       {palette.map((p, i) => {
         const active = ui.tool === "pen" && ui.penColor === p.color && ui.penWidth === p.width;
         return (
@@ -224,6 +211,17 @@ export default function Toolbar({
           e.target.value = "";
         }}
       />
+      {toolBtn("select", "🖐", "Move text & image boxes (touch: swipe to flip pages)")}
+      {toolBtn("marquee", "⬚", "Select area — drag a box (or tap an item) to move, copy, or delete")}
+      <button
+        data-action="paste-selection"
+        title="Paste the cut/copied selection onto this page (Ctrl+V)"
+        disabled={!hasSelectionClipboard()}
+        onClick={onPasteSelection}
+        className="flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100 disabled:opacity-30"
+      >
+        📋
+      </button>
       <span className="mx-1 h-6 w-px bg-slate-300" />
       <button
         data-action="undo"
@@ -244,14 +242,6 @@ export default function Toolbar({
         ↪
       </button>
       <span className="mx-1 h-6 w-px bg-slate-300" />
-      <button
-        data-action="duplicate-page"
-        title="Duplicate this page (instant)"
-        onClick={onDuplicatePage}
-        className="flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
-      >
-        ⧉ Duplicate page
-      </button>
       <button
         data-action="add-page"
         title="Insert a new blank page after this one"

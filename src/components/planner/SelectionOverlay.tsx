@@ -9,19 +9,8 @@ import {
   moveSelectionContents,
 } from "@/lib/blocks/actions";
 import { computeAreaSelection } from "@/lib/ink/select";
+import { RESIZE_HANDLES, resizeRect } from "./resize-handles";
 import { usePlannerUI } from "./ui-context";
-
-/** 8 resize handles: which box edges each one drags. */
-const HANDLES: { key: string; l?: boolean; r?: boolean; t?: boolean; b?: boolean; pos: string; cursor: string }[] = [
-  { key: "nw", l: true, t: true, pos: "-left-1.5 -top-1.5", cursor: "nwse-resize" },
-  { key: "n", t: true, pos: "left-1/2 -top-1.5 -translate-x-1/2", cursor: "ns-resize" },
-  { key: "ne", r: true, t: true, pos: "-right-1.5 -top-1.5", cursor: "nesw-resize" },
-  { key: "e", r: true, pos: "-right-1.5 top-1/2 -translate-y-1/2", cursor: "ew-resize" },
-  { key: "se", r: true, b: true, pos: "-right-1.5 -bottom-1.5", cursor: "nwse-resize" },
-  { key: "s", b: true, pos: "left-1/2 -bottom-1.5 -translate-x-1/2", cursor: "ns-resize" },
-  { key: "sw", l: true, b: true, pos: "-left-1.5 -bottom-1.5", cursor: "nesw-resize" },
-  { key: "w", l: true, pos: "-left-1.5 top-1/2 -translate-y-1/2", cursor: "ew-resize" },
-];
 
 /**
  * The dashed box shown after a ⬚ area selection: drag it to move everything
@@ -46,13 +35,7 @@ export default function SelectionOverlay() {
     if (!rz || !sel) return;
     const dx = dxPx / scale;
     const dy = dyPx / scale;
-    let { x, y, w, h } = rz.base;
-    if (rz.l) { x += dx; w -= dx; }
-    if (rz.r) { w += dx; }
-    if (rz.t) { y += dy; h -= dy; }
-    if (rz.b) { h += dy; }
-    if (w < 0) { x += w; w = -w; }
-    if (h < 0) { y += h; h = -h; }
+    let { x, y, w, h } = resizeRect(rz.base, rz, dx, dy);
     x = Math.max(0, Math.min(PAGE_W - 12, x));
     y = Math.max(0, Math.min(PAGE_H - 12, y));
     w = Math.max(12, Math.min(PAGE_W - x, w));
@@ -195,7 +178,7 @@ export default function SelectionOverlay() {
           style={{ opacity: 0 }}
         />
         {/* corner + side handles: resize the box, re-capturing its contents */}
-        {HANDLES.map((hd) => (
+        {RESIZE_HANDLES.map((hd) => (
           <div
             key={hd.key}
             data-resize-selection={hd.key}

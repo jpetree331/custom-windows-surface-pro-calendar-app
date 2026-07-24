@@ -201,7 +201,16 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       };
       marquee = null;
       repaintLive();
-      if (rect.w < 8 || rect.h < 8) return; // a tap, not a box
+      if (rect.w < 8 || rect.h < 8) {
+        // A TAP with the selection tool picks the item under it (Jo).
+        const [tx, ty] = [rect.x + rect.w / 2, rect.y + rect.h / 2];
+        const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
+        const hit = blocks
+          .filter((b) => tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h)
+          .sort((a, b) => b.z - a.z)[0];
+        uiRef.current.setSelectedBlockId(hit ? hit.id : null);
+        return;
+      }
       // Line-aware: whole letters/lines, without grabbing neighbors whose
       // tails merely dip into the box (see strokesInRect).
       const sel = await computeAreaSelection(pageId, rect, strokesRef.current);

@@ -7,6 +7,7 @@ import type { Block } from "@/lib/db/types";
 import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 import { TEXT_SIZE_PT } from "@/lib/ink/tools";
 import { addBlock, deleteBlock, makeTextBlock, updateBlock, copyBlockToClipboard, carryTaskForward } from "@/lib/blocks/actions";
+import { RESIZE_HANDLES, resizeRect } from "./resize-handles";
 import { usePlannerUI } from "./ui-context";
 
 function ImageContent({ blob }: { blob: Blob }) {
@@ -61,7 +62,23 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   const patchStyle = (patch: Partial<Block>) =>
     void updateBlock(block, { ...block, ...patch, updatedAt: Date.now() });
   const fontSize = block.fontSize ?? TEXT_SIZE_PT;
-  const dragState = useRef<{ startX: number; startY: number; orig: Block; mode: "move" | "resize" } | null>(null);
+  const dragState = useRef<{
+    startX: number;
+    startY: number;
+    orig: Block;
+    mode: "move" | "resize";
+    edges?: { l?: boolean; r?: boolean; t?: boolean; b?: boolean };
+  } | null>(null);
+
+  const resizedRect = (st: NonNullable<typeof dragState.current>, dx: number, dy: number) => {
+    const r = resizeRect({ x: st.orig.x, y: st.orig.y, w: st.orig.w, h: st.orig.h }, st.edges ?? {}, dx, dy);
+    return {
+      x: Math.max(0, Math.min(PAGE_W - 40, r.x)),
+      y: Math.max(0, Math.min(PAGE_H - 24, r.y)),
+      w: Math.max(40, Math.min(PAGE_W, r.w)),
+      h: Math.max(24, Math.min(PAGE_H, r.h)),
+    };
+  };
 
   const commitDrag = (e: PointerEvent | React.PointerEvent) => {
     const st = dragState.current;
@@ -78,21 +95,20 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             y: Math.max(0, Math.min(PAGE_H - st.orig.h, st.orig.y + dy)),
             updatedAt: Date.now(),
           }
-        : {
-            ...st.orig,
-            w: Math.max(40, st.orig.w + dx),
-            h: Math.max(24, st.orig.h + dy),
-            updatedAt: Date.now(),
-          };
+        : { ...st.orig, ...resizedRect(st, dx, dy), updatedAt: Date.now() };
     void updateBlock(st.orig, after);
   };
 
-  const startDrag = (e: React.PointerEvent, mode: "move" | "resize") => {
+  const startDrag = (
+    e: React.PointerEvent,
+    mode: "move" | "resize",
+    edges?: { l?: boolean; r?: boolean; t?: boolean; b?: boolean }
+  ) => {
     // draggable in select mode, or whenever THIS block is selected (any tool)
     if ((ui.tool !== "select" && !selected) || editing) return;
     e.stopPropagation();
     ui.setSelectedBlockId(block.id);
-    dragState.current = { startX: e.clientX, startY: e.clientY, orig: block, mode };
+    dragState.current = { startX: e.clientX, startY: e.clientY, orig: block, mode, edges };
     const el = e.currentTarget as HTMLElement;
     try {
       el.setPointerCapture(e.pointerId);
@@ -106,9 +122,18 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
     if (!st) return;
     const dx = (e.clientX - st.startX) / scale;
     const dy = (e.clientY - st.startY) / scale;
-    const host = e.currentTarget.closest("[data-block-id]") as HTMLElement | null;
+    const host = (e.currentTarget as HTMLElement).closest("[data-block-id]") as HTMLElement | null;
     const target = host ?? (e.currentTarget as HTMLElement);
-    if (st.mode === "move") target.style.transform = `translate(${dx * scale}px, ${dy * scale}px)`;
+    if (st.mode === "move") {
+      target.style.transform = `translate(${dx * scale}px, ${dy * scale}px)`;
+    } else {
+      // live preview of the resize on the block itself
+      const r = resizedRect(st, dx, dy);
+      target.style.left = `${r.x * scale}px`;
+      target.style.top = `${r.y * scale}px`;
+      target.style.width = `${r.w * scale}px`;
+      target.style.height = `${r.h * scale}px`;
+    }
   };
 
   const saveText = () => {
@@ -214,13 +239,19 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
       )}
       {selected && (
         <>
-          <div
-            data-resize-handle
-            className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-sm border border-white bg-blue-500"
-            onPointerDown={(e) => startDrag(e, "resize")}
-            onPointerMove={onDragMove}
-            onPointerUp={(e) => commitDrag(e)}
-          />
+          {/* 8 handles — same resize box as the ⬚ selection, but here the
+              handles resize the ITEM itself (picture, text box, task) */}
+          {RESIZE_HANDLES.map((hd) => (
+            <div
+              key={hd.key}
+              data-resize-handle={hd.key}
+              className={`absolute h-3 w-3 rounded-sm border border-white bg-blue-500 ${hd.pos}`}
+              style={{ cursor: hd.cursor, touchAction: "none" }}
+              onPointerDown={(e) => startDrag(e, "resize", hd)}
+              onPointerMove={onDragMove}
+              onPointerUp={(e) => commitDrag(e)}
+            />
+          ))}
           <div
             className="absolute left-0 flex flex-col items-start gap-0.5"
             style={{ top: block.type !== "image" ? "-3.6rem" : "-2rem" }}

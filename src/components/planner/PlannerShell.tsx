@@ -517,11 +517,6 @@ export default function PlannerShell() {
     syncPagePosition(Math.max(0, i));
   }, [planner, pages, syncPagePosition]);
 
-  const onDuplicatePage = useCallback(() => {
-    const pageId = viewportCenterPageId();
-    if (pageId) void duplicatePage(pageId);
-  }, [viewportCenterPageId]);
-
   const onAddPage = useCallback(
     async (label: string, anchorId?: string | null) => {
       const anchor = anchorId ?? viewportCenterPageId();
@@ -664,7 +659,6 @@ export default function PlannerShell() {
         </div>
         <Toolbar
           onAddImage={onAddImage}
-          onDuplicatePage={onDuplicatePage}
           onAddPage={() => setShowAddPage(true)}
           onOpenManage={() => setShowManage(true)}
           onExport={(scope) => void onExport(scope)}
