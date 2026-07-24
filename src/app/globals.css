@@ -54,6 +54,10 @@ body {
   [data-single-feed] .p-2 {
     padding: 0 !important;
   }
+  /* screen-only overlays that could be mid-use when printing */
+  [data-selection-overlay] {
+    display: none !important;
+  }
   /* event chips: keep text readable even when the browser skips backgrounds */
   [data-event-chip] {
     color: #000 !important;

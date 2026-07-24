@@ -48,6 +48,11 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   })();
   const customColorRef = useRef<HTMLInputElement>(null);
   const scale = pageWidth / PAGE_W;
+  // Geometry/font styling uses container units, NOT screen px: print re-lays
+  // the page out without re-running ResizeObservers, so px-scaled blocks
+  // drifted off their spots on paper (Tim's "cabling" overflow). cqw resolves
+  // against the page stack (containerType: inline-size) in any layout.
+  const cq = (v: number) => `${(v / PAGE_W) * 100}cqw`;
   // A brand-new empty text box opens ready to type — no double-click needed.
   const [editing, setEditing] = useState(
     () => block.type !== "image" && block.content === "" && Date.now() - block.createdAt < 3000
@@ -124,15 +129,16 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
     const dy = (e.clientY - st.startY) / scale;
     const host = (e.currentTarget as HTMLElement).closest("[data-block-id]") as HTMLElement | null;
     const target = host ?? (e.currentTarget as HTMLElement);
+    // previews in cqw too: a leftover px override would stop scaling in print
     if (st.mode === "move") {
-      target.style.transform = `translate(${dx * scale}px, ${dy * scale}px)`;
+      target.style.transform = `translate(${cq(dx)}, ${cq(dy)})`;
     } else {
       // live preview of the resize on the block itself
       const r = resizedRect(st, dx, dy);
-      target.style.left = `${r.x * scale}px`;
-      target.style.top = `${r.y * scale}px`;
-      target.style.width = `${r.w * scale}px`;
-      target.style.height = `${r.h * scale}px`;
+      target.style.left = cq(r.x);
+      target.style.top = cq(r.y);
+      target.style.width = cq(r.w);
+      target.style.height = cq(r.h);
     }
   };
 
@@ -174,11 +180,11 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
       data-block-id={block.id}
       className="absolute"
       style={{
-        left: block.x * scale,
-        top: block.y * scale,
+        left: cq(block.x),
+        top: cq(block.y),
         // While editing, expand to a comfortable size; shrink-to-fit on Done.
-        width: (editing ? Math.max(block.w, 280) : block.w) * scale,
-        height: (editing ? Math.max(block.h, 110) : block.h) * scale,
+        width: cq(editing ? Math.max(block.w, 280) : block.w),
+        height: cq(editing ? Math.max(block.h, 110) : block.h),
         // A SELECTED block rises above the ink canvas and stays interactive
         // with ANY tool — tap-to-select (InkCanvas) then drag to move.
         zIndex: selected ? 45 : block.z,
@@ -213,7 +219,7 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
               }
               onPointerDown={(e) => e.stopPropagation()}
               className="mt-[2px] shrink-0"
-              style={{ width: 14 * scale + 6, height: 14 * scale + 6 }}
+              style={{ width: `calc(${cq(14)} + 6px)`, height: `calc(${cq(14)} + 6px)` }}
             />
           )}
           <div
@@ -226,7 +232,7 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
               editing ? "cursor-text bg-white/70 ring-1 ring-blue-300" : ""
             } ${block.type === "task" && block.checked ? "line-through opacity-60" : ""}`}
             style={{
-              fontSize: fontSize * 1.9 * scale,
+              fontSize: cq(fontSize * 1.9),
               color: block.color ?? "#0f172a",
               fontWeight: block.bold ? 700 : 500,
               fontStyle: block.italic ? "italic" : undefined,
@@ -245,7 +251,7 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             <div
               key={hd.key}
               data-resize-handle={hd.key}
-              className={`absolute h-3 w-3 rounded-sm border border-white bg-blue-500 ${hd.pos}`}
+              className={`absolute h-3 w-3 rounded-sm border border-white bg-blue-500 print:hidden ${hd.pos}`}
               style={{ cursor: hd.cursor, touchAction: "none" }}
               onPointerDown={(e) => startDrag(e, "resize", hd)}
               onPointerMove={onDragMove}
@@ -253,7 +259,7 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             />
           ))}
           <div
-            className="absolute left-0 flex flex-col items-start gap-0.5"
+            className="absolute left-0 flex flex-col items-start gap-0.5 print:hidden"
             style={{ top: block.type !== "image" ? "-3.6rem" : "-2rem" }}
             // preventDefault: bar taps must NOT steal focus from the text box —
             // otherwise picking a color mid-edit blurred and closed the editor
