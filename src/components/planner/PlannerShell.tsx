@@ -30,6 +30,7 @@ import {
 import { getTimeFormat, setTimeFormat as persistTimeFormat, type TimeFormat } from "@/lib/settings";
 import { PLANNER_SLUG } from "@/lib/branding";
 import { saveFile } from "@/lib/save";
+import { maybeAutoSync } from "@/lib/google/autosync";
 import { ensureStarterCategories } from "@/lib/categories/actions";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
@@ -504,6 +505,19 @@ export default function PlannerShell() {
   }, [pasteImage, pasteSelectionCentered]);
 
   const onAddImage = useCallback((file: File) => void pasteImage(file), [pasteImage]);
+
+  // Scheduled Google auto-sync: checked shortly after launch and then every
+  // few minutes; maybeAutoSync gates itself on the user's chosen interval.
+  useEffect(() => {
+    if (!planner) return;
+    const tick = () => void maybeAutoSync(planner.id, planner.year);
+    const first = setTimeout(tick, 5_000);
+    const iv = setInterval(tick, 5 * 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(iv);
+    };
+  }, [planner]);
 
   // On open (and when switching years), Single Page mode lands on the current week.
   const landedPlanner = useRef<string | null>(null);

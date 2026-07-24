@@ -79,6 +79,60 @@ export function cachedToken(): string | null {
   }
 }
 
+/**
+ * Best-effort token WITHOUT bothering the user: cached session token first;
+ * otherwise a background GIS request that auto-completes (brief self-closing
+ * window) when consent + Google session already exist. Resolves null on any
+ * failure — callers treat null as "sync later", never as an error.
+ */
+export async function getSilentAccessToken(): Promise<string | null> {
+  const cached = cachedToken();
+  if (cached) return cached;
+  const clientId = googleClientId();
+  if (!clientId) return null;
+  try {
+    await loadGis();
+  } catch {
+    return null;
+  }
+  if (!window.google?.accounts?.oauth2) return null;
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (v: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      resolve(v);
+    };
+    const watchdog = setTimeout(() => settle(null), 25_000);
+    try {
+      const client = window.google!.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: GOOGLE_SCOPE,
+        callback: (resp) => {
+          if (resp.error || !resp.access_token) {
+            settle(null);
+            return;
+          }
+          try {
+            sessionStorage.setItem(
+              TOKEN_KEY,
+              JSON.stringify({ token: resp.access_token, exp: Date.now() + resp.expires_in * 1000 })
+            );
+          } catch {
+            // sessionStorage unavailable — token still usable now
+          }
+          settle(resp.access_token);
+        },
+        error_callback: () => settle(null),
+      });
+      client.requestAccessToken({ prompt: "" });
+    } catch {
+      settle(null);
+    }
+  });
+}
+
 /** Get an access token, prompting the user on first use. */
 export async function getAccessToken(): Promise<string> {
   const clientId = googleClientId();

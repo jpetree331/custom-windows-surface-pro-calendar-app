@@ -1,9 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getAccessToken, googleClientId } from "@/lib/google/auth";
 import { insertEvent } from "@/lib/google/api";
-import { importYear } from "@/lib/google/import";
+import { importYear, type ImportResult } from "@/lib/google/import";
+import {
+  getAutoSyncInterval,
+  lastAutoSyncAt,
+  onAutoSync,
+  recordManualSync,
+  setAutoSyncInterval,
+  type AutoSyncInterval,
+} from "@/lib/google/autosync";
+
+const AUTO_SYNC_CHOICES: { value: AutoSyncInterval; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "1h", label: "Hourly" },
+  { value: "12h", label: "Every 12h" },
+  { value: "24h", label: "Every 24h" },
+];
+
+function importSummary(r: ImportResult): string {
+  const parts = [
+    `Imported ${r.total} items from ${r.calendars} calendar${r.calendars === 1 ? "" : "s"}`,
+    `(${r.added} new, ${r.updated} refreshed${r.tasks ? `, ${r.tasks} Google Tasks` : ""}).`,
+  ];
+  if (r.warnings.length > 0) parts.push(`⚠ ${r.warnings.join(" ")}`);
+  return parts.join(" ");
+}
 
 /** Google Calendar section of the settings dialog: connect, sync, invite. */
 export default function GooglePanel({ plannerId, year }: { plannerId: string; year: number }) {
@@ -16,18 +40,27 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
   const [time, setTime] = useState("");
   const [attendee, setAttendee] = useState("");
   const [repeatWeekly, setRepeatWeekly] = useState(false);
+  const [autoSync, setAutoSync] = useState<AutoSyncInterval>("off");
+  const [lastSync, setLastSync] = useState<number | null>(null);
+
+  useEffect(() => {
+    setAutoSync(getAutoSyncInterval());
+    setLastSync(lastAutoSyncAt(plannerId));
+    // live update if a background sync completes while the dialog is open
+    return onAutoSync((r, at) => {
+      setLastSync(at);
+      setStatus(`Auto-synced: ${importSummary(r)}`);
+    });
+  }, [plannerId]);
 
   const syncNow = async () => {
     setBusy(true);
     try {
       const token = await getAccessToken();
       const r = await importYear(plannerId, year, token);
-      const parts = [
-        `Imported ${r.total} items from ${r.calendars} calendar${r.calendars === 1 ? "" : "s"}`,
-        `(${r.added} new, ${r.updated} refreshed${r.tasks ? `, ${r.tasks} Google Tasks` : ""}).`,
-      ];
-      if (r.warnings.length > 0) parts.push(`⚠ ${r.warnings.join(" ")}`);
-      setStatus(parts.join(" "));
+      recordManualSync(plannerId); // resets the auto-sync clock too
+      setLastSync(lastAutoSyncAt(plannerId));
+      setStatus(importSummary(r));
     } catch (err) {
       setStatus(String(err instanceof Error ? err.message : err));
     } finally {
@@ -80,6 +113,35 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
       >
         {busy ? "Working…" : "Connect & sync now"}
       </button>
+      {googleClientId() && (
+        <div className="mb-3" data-auto-sync>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-semibold text-slate-600">Auto-sync:</span>
+            {AUTO_SYNC_CHOICES.map((c) => (
+              <label key={c.value} className="flex items-center gap-1">
+                <input
+                  type="radio"
+                  name="autoSync"
+                  data-auto-sync-option={c.value}
+                  checked={autoSync === c.value}
+                  onChange={() => {
+                    setAutoSyncInterval(c.value);
+                    setAutoSync(c.value);
+                  }}
+                />
+                {c.label}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {lastSync && (
+              <span data-last-sync>Last synced {new Date(lastSync).toLocaleString()}. </span>
+            )}
+            Runs in the background while the app is open; a small Google window may
+            flash briefly when it refreshes access.
+          </p>
+        </div>
+      )}
       <form onSubmit={createEvent} className="space-y-1.5">
         <p className="text-xs font-semibold text-slate-600">New Google event (+ invite a contact)</p>
         <input
