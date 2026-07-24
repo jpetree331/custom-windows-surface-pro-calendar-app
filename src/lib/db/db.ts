@@ -22,6 +22,9 @@ export class JotterDB extends Dexie {
   categories!: EntityTable<Category, "id">;
   events!: EntityTable<PlannerEvent, "id">;
   syncQueue!: EntityTable<SyncQueueItem, "seq">;
+  /** Device-local key/value store (e.g. the chosen save-folder handle).
+   *  Deliberately NOT part of backups — it's per-device state. */
+  kv!: EntityTable<{ key: string; value: unknown }, "key">;
 
   constructor() {
     super("jotter");
@@ -35,6 +38,10 @@ export class JotterDB extends Dexie {
       categories: "id, plannerId",
       events: "id, plannerId, date, googleId",
       syncQueue: "++seq, table",
+    });
+    // v2: additive kv store only — no existing table changes, no data migration.
+    this.version(2).stores({
+      kv: "key",
     });
   }
 }

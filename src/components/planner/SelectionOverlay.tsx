@@ -8,7 +8,20 @@ import {
   duplicateSelectionContents,
   moveSelectionContents,
 } from "@/lib/blocks/actions";
+import { computeAreaSelection } from "@/lib/ink/select";
 import { usePlannerUI } from "./ui-context";
+
+/** 8 resize handles: which box edges each one drags. */
+const HANDLES: { key: string; l?: boolean; r?: boolean; t?: boolean; b?: boolean; pos: string; cursor: string }[] = [
+  { key: "nw", l: true, t: true, pos: "-left-1.5 -top-1.5", cursor: "nwse-resize" },
+  { key: "n", t: true, pos: "left-1/2 -top-1.5 -translate-x-1/2", cursor: "ns-resize" },
+  { key: "ne", r: true, t: true, pos: "-right-1.5 -top-1.5", cursor: "nesw-resize" },
+  { key: "e", r: true, pos: "-right-1.5 top-1/2 -translate-y-1/2", cursor: "ew-resize" },
+  { key: "se", r: true, b: true, pos: "-right-1.5 -bottom-1.5", cursor: "nwse-resize" },
+  { key: "s", b: true, pos: "left-1/2 -bottom-1.5 -translate-x-1/2", cursor: "ns-resize" },
+  { key: "sw", l: true, b: true, pos: "-left-1.5 -bottom-1.5", cursor: "nesw-resize" },
+  { key: "w", l: true, pos: "-left-1.5 top-1/2 -translate-y-1/2", cursor: "ew-resize" },
+];
 
 /**
  * The dashed box shown after a ⬚ area selection: drag it to move everything
@@ -20,6 +33,48 @@ export default function SelectionOverlay() {
   const hostRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
+  const resizing = useRef<{
+    l: boolean; r: boolean; t: boolean; b: boolean;
+    startX: number; startY: number;
+    base: { x: number; y: number; w: number; h: number };
+  } | null>(null);
+
+  /** Resize the selection box → re-capture what's inside the new area. */
+  const commitResize = async (dxPx: number, dyPx: number) => {
+    const rz = resizing.current;
+    const sel = ui.selection;
+    if (!rz || !sel) return;
+    const dx = dxPx / scale;
+    const dy = dyPx / scale;
+    let { x, y, w, h } = rz.base;
+    if (rz.l) { x += dx; w -= dx; }
+    if (rz.r) { w += dx; }
+    if (rz.t) { y += dy; h -= dy; }
+    if (rz.b) { h += dy; }
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
+    x = Math.max(0, Math.min(PAGE_W - 12, x));
+    y = Math.max(0, Math.min(PAGE_H - 12, y));
+    w = Math.max(12, Math.min(PAGE_W - x, w));
+    h = Math.max(12, Math.min(PAGE_H - y, h));
+    const next = await computeAreaSelection(sel.pageId, { x, y, w, h });
+    ui.setSelection(next); // keep the box even if it now holds 0 items
+  };
+
+  const liveResizeStyle = (el: HTMLElement, dxPx: number, dyPx: number) => {
+    const rz = resizing.current;
+    if (!rz) return;
+    const b = rz.base;
+    const px = (u: number) => u * scale;
+    const nx = px(b.x) + (rz.l ? dxPx : 0);
+    const ny = px(b.y) + (rz.t ? dyPx : 0);
+    const nw = px(b.w) + (rz.r ? dxPx : 0) - (rz.l ? dxPx : 0);
+    const nh = px(b.h) + (rz.b ? dyPx : 0) - (rz.t ? dyPx : 0);
+    el.style.left = `${Math.min(nx, nx + nw)}px`;
+    el.style.top = `${Math.min(ny, ny + nh)}px`;
+    el.style.width = `${Math.abs(nw)}px`;
+    el.style.height = `${Math.abs(nh)}px`;
+  };
 
   /** Paint the selection's actual content (ink crop + block sketches) into
    *  the ghost canvas so Jo sees exactly what she's placing while dragging. */
@@ -139,6 +194,41 @@ export default function SelectionOverlay() {
           className="pointer-events-none absolute inset-0 h-full w-full transition-opacity"
           style={{ opacity: 0 }}
         />
+        {/* corner + side handles: resize the box, re-capturing its contents */}
+        {HANDLES.map((hd) => (
+          <div
+            key={hd.key}
+            data-resize-selection={hd.key}
+            className={`pointer-events-auto absolute h-3 w-3 rounded-sm border border-white bg-blue-600 ${hd.pos}`}
+            style={{ cursor: hd.cursor, touchAction: "none" }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              resizing.current = {
+                l: !!hd.l, r: !!hd.r, t: !!hd.t, b: !!hd.b,
+                startX: e.clientX, startY: e.clientY,
+                base: { ...sel.rect },
+              };
+              try {
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              } catch {
+                // best-effort capture
+              }
+            }}
+            onPointerMove={(e) => {
+              if (!resizing.current) return;
+              const box = (e.currentTarget as HTMLElement).closest("[data-selection-box]") as HTMLElement;
+              liveResizeStyle(box, e.clientX - resizing.current.startX, e.clientY - resizing.current.startY);
+            }}
+            onPointerUp={(e) => {
+              if (!resizing.current) return;
+              const dx = e.clientX - resizing.current.startX;
+              const dy = e.clientY - resizing.current.startY;
+              void commitResize(dx, dy).finally(() => {
+                resizing.current = null;
+              });
+            }}
+          />
+        ))}
         <div
           className="absolute -top-9 left-0 flex gap-1"
           onPointerDown={(e) => e.stopPropagation()}

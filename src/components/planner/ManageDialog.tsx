@@ -8,6 +8,8 @@ import { addCategory, deleteCategory, updateCategory } from "@/lib/categories/ac
 import GooglePanel from "./GooglePanel";
 import BackupPanel from "./BackupPanel";
 import { usePlannerUI } from "./ui-context";
+import { useEffect } from "react";
+import { chooseSaveFolder, clearSaveFolder, folderPickingSupported, getSaveFolderName } from "@/lib/save";
 
 /** Settings dialog: manage habits (daily/weekly) and color categories. */
 export default function ManageDialog({
@@ -31,6 +33,10 @@ export default function ManageDialog({
   const [newCat, setNewCat] = useState("");
   const [newCatColor, setNewCatColor] = useState("#3fa9f5");
   const ui = usePlannerUI();
+  const [saveFolder, setSaveFolder] = useState<string | null>(null);
+  useEffect(() => {
+    void getSaveFolderName().then(setSaveFolder);
+  }, []);
 
   return (
     <div
@@ -69,6 +75,39 @@ export default function ManageDialog({
             </label>
           ))}
         </div>
+
+        {folderPickingSupported() && (
+          <>
+            <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Save location</h3>
+            <div className="mb-3 flex items-center gap-2 text-sm" data-save-location>
+              <span className="text-slate-600">
+                PDFs &amp; backups go to:{" "}
+                <span className="font-semibold" data-save-folder-name>
+                  {saveFolder ? `📁 ${saveFolder}` : "browser Downloads"}
+                </span>
+              </span>
+              <button
+                data-action="choose-folder"
+                className="rounded border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => void chooseSaveFolder().then((name) => name && setSaveFolder(name))}
+              >
+                Choose folder…
+              </button>
+              {saveFolder && (
+                <button
+                  data-action="clear-folder"
+                  className="text-xs text-slate-500 underline"
+                  onClick={() => {
+                    void clearSaveFolder();
+                    setSaveFolder(null);
+                  }}
+                >
+                  Use Downloads instead
+                </button>
+              )}
+            </div>
+          </>
+        )}
 
         <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Habits</h3>
         <div className="mb-2 space-y-1">

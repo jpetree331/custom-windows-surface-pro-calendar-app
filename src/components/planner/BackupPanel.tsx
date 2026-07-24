@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createBackup, restoreBackup, ensurePersistentStorage } from "@/lib/backup";
 import { PLANNER_SLUG } from "@/lib/branding";
+import { saveFile } from "@/lib/save";
 import { lastDriveBackupAt, recordDriveBackup } from "@/lib/backup-auto";
 import { getAccessToken, googleClientId } from "@/lib/google/auth";
 import { downloadDriveBackup, uploadDriveBackup } from "@/lib/google/drive";
@@ -55,13 +56,16 @@ export default function BackupPanel() {
   const download = async () => {
     try {
       const blob = await createBackup();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${PLANNER_SLUG}-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      setStatus(`Backup downloaded (${(blob.size / 1024 / 1024).toFixed(1)} MB). Keep it in OneDrive or Downloads.`);
+      const size = (blob.size / 1024 / 1024).toFixed(1);
+      const res = await saveFile(
+        `${PLANNER_SLUG}-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        blob
+      );
+      setStatus(
+        res.mode === "folder"
+          ? `Backup saved to your "${res.folder}" folder (${size} MB).`
+          : `Backup downloaded (${size} MB). Pick a save folder in settings to skip the Downloads folder.`
+      );
     } catch (err) {
       setStatus(String(err instanceof Error ? err.message : err));
     }

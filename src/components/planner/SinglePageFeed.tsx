@@ -125,9 +125,12 @@ export default function SinglePageFeed({
         {/* shrink-0 + auto margins (NOT justify-center): a zoomed page must be
             allowed to exceed the viewport and pan from its left edge — flex
             shrink was silently re-fitting it (invisible zoom in portrait). */}
-        <div className="flex min-h-full items-start p-2 pr-12">
+        {/* m-auto: page centers in BOTH axes when it fits (no dead strip in
+            portrait); margins collapse to 0 when zoomed larger, so panning
+            still starts from the page's top-left edge. */}
+        <div className="flex min-h-full p-2 pr-12">
           <div
-            className="mx-auto shrink-0"
+            className="m-auto shrink-0"
             data-page-index={page.index}
             data-page-label={page.label}
             style={{ width: pw }}

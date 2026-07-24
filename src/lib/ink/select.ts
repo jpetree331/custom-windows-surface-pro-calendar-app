@@ -1,3 +1,4 @@
+import { db } from "@/lib/db/db";
 import type { Stroke } from "@/lib/db/types";
 
 export interface Rect {
@@ -5,6 +6,32 @@ export interface Rect {
   y: number;
   w: number;
   h: number;
+}
+
+export interface AreaSelectionResult {
+  pageId: string;
+  rect: Rect;
+  strokeIds: string[];
+  blockIds: string[];
+}
+
+/**
+ * What lives inside `rect` on this page — strokes via the line-aware
+ * heuristic, blocks via bbox intersection. Shared by the marquee tool and
+ * the selection-box resize handles.
+ */
+export async function computeAreaSelection(
+  pageId: string,
+  rect: Rect,
+  strokes?: Stroke[]
+): Promise<AreaSelectionResult> {
+  const pageStrokes = strokes ?? (await db.strokes.where("pageId").equals(pageId).toArray());
+  const strokeIds = strokesInRect(pageStrokes, rect);
+  const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
+  const blockIds = blocks
+    .filter((b) => b.x < rect.x + rect.w && b.x + b.w > rect.x && b.y < rect.y + rect.h && b.y + b.h > rect.y)
+    .map((b) => b.id);
+  return { pageId, rect, strokeIds, blockIds };
 }
 
 /**

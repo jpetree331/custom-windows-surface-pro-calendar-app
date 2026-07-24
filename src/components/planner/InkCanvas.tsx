@@ -13,7 +13,7 @@ import {
   RECT_WIDTH_PT,
 } from "@/lib/ink/tools";
 import { drawStroke, renderStrokes, strokesHitByEraser } from "@/lib/ink/render";
-import { strokesInRect } from "@/lib/ink/select";
+import { computeAreaSelection } from "@/lib/ink/select";
 import { addStroke, deleteStrokes } from "@/lib/blocks/actions";
 import { usePlannerUI } from "./ui-context";
 
@@ -204,14 +204,8 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       if (rect.w < 8 || rect.h < 8) return; // a tap, not a box
       // Line-aware: whole letters/lines, without grabbing neighbors whose
       // tails merely dip into the box (see strokesInRect).
-      const strokeIds = strokesInRect(strokesRef.current, rect);
-      const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
-      const blockIds = blocks
-        .filter((bl) => bl.x < rect.x + rect.w && bl.x + bl.w > rect.x && bl.y < rect.y + rect.h && bl.y + bl.h > rect.y)
-        .map((bl) => bl.id);
-      uiRef.current.setSelection(
-        strokeIds.length > 0 || blockIds.length > 0 ? { pageId, rect, strokeIds, blockIds } : null
-      );
+      const sel = await computeAreaSelection(pageId, rect, strokesRef.current);
+      uiRef.current.setSelection(sel.strokeIds.length > 0 || sel.blockIds.length > 0 ? sel : null);
     };
 
     const finish = async (e: PointerEvent) => {
@@ -297,8 +291,18 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
         // Touch panning/swiping is reimplemented manually above.
         touchAction: "none",
         pointerEvents: inkActive ? "auto" : "none",
-        cursor: ui.tool === "eraser" ? "cell" : inkActive ? "crosshair" : "default",
+        cursor:
+          ui.tool === "eraser"
+            ? "cell"
+            : ui.tool === "pen" || ui.tool === "highlighter"
+              ? DOT_CURSOR
+              : inkActive
+                ? "crosshair"
+                : "default",
       }}
     />
   );
 }
+
+/** A small dot instead of the big crosshair (Jo) — 8px circle, centered hotspot. */
+const DOT_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Ccircle cx='4' cy='4' r='3' fill='%23334155' stroke='white' stroke-width='1'/%3E%3C/svg%3E") 4 4, crosshair`;

@@ -1,6 +1,8 @@
+import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
+import { db } from "@/lib/db/db";
 import type { Stroke } from "@/lib/db/types";
-import { strokesInRect } from "./select";
+import { computeAreaSelection, strokesInRect } from "./select";
 import { formatTime } from "@/lib/settings";
 
 const stroke = (id: string, points: [number, number][]): Stroke => ({
@@ -37,6 +39,27 @@ describe("strokesInRect (line-aware handwriting selection)", () => {
   it("still selects strokes fully inside", () => {
     const inside = stroke("in", [[95, 90], [100, 95]]);
     expect(strokesInRect([inside], box)).toEqual(["in"]);
+  });
+});
+
+describe("computeAreaSelection (marquee + resize handles)", () => {
+  it("re-captures strokes and blocks for a given rect from the db", async () => {
+    await Promise.all(db.tables.map((t) => t.clear()));
+    await db.strokes.bulkAdd([
+      stroke("in1", [[100, 100], [120, 110]]),
+      stroke("out1", [[500, 500], [520, 510]]),
+    ]);
+    await db.blocks.bulkAdd([
+      { id: "bIn", pageId: "p", type: "text", x: 90, y: 90, w: 50, h: 30, z: 1, content: "x", createdAt: 1, updatedAt: 1 },
+      { id: "bOut", pageId: "p", type: "text", x: 700, y: 700, w: 50, h: 30, z: 1, content: "y", createdAt: 1, updatedAt: 1 },
+    ]);
+    const sel = await computeAreaSelection("p", { x: 80, y: 80, w: 100, h: 80 });
+    expect(sel.strokeIds).toEqual(["in1"]);
+    expect(sel.blockIds).toEqual(["bIn"]);
+    // grow the rect (what a handle-drag does) → captures more
+    const bigger = await computeAreaSelection("p", { x: 80, y: 80, w: 700, h: 700 });
+    expect(bigger.strokeIds.sort()).toEqual(["in1", "out1"]);
+    expect(bigger.blockIds.sort()).toEqual(["bIn", "bOut"]);
   });
 });
 

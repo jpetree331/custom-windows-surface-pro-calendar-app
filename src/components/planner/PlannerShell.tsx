@@ -29,6 +29,7 @@ import {
 } from "@/lib/blocks/actions";
 import { getTimeFormat, setTimeFormat as persistTimeFormat, type TimeFormat } from "@/lib/settings";
 import { PLANNER_SLUG } from "@/lib/branding";
+import { saveFile } from "@/lib/save";
 import { ensureStarterCategories } from "@/lib/categories/actions";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
@@ -540,12 +541,8 @@ export default function PlannerShell() {
       const pageId = scope === "page" ? (viewportCenterPageId() ?? undefined) : undefined;
       const bytes = await exportPdf({ scope, pageId, plannerId: planner?.id });
       const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = scope === "year" ? `${PLANNER_SLUG}-${planner?.year ?? ""}.pdf` : `${PLANNER_SLUG}-page.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      const name = scope === "year" ? `${PLANNER_SLUG}-${planner?.year ?? ""}.pdf` : `${PLANNER_SLUG}-page.pdf`;
+      await saveFile(name, blob); // chosen folder if set, else browser download
     },
     [viewportCenterPageId, planner]
   );
@@ -600,7 +597,12 @@ export default function PlannerShell() {
                     });
                   }}
                 >
-                  <div className="relative overflow-hidden rounded-md" style={{ containerType: "inline-size" }}>
+                  {/* isolation: block z-indexes (huge) stay INSIDE the page,
+                      so fixed dialogs/menus always render above content */}
+                  <div
+                    className="relative overflow-hidden rounded-md"
+                    style={{ containerType: "inline-size", isolation: "isolate" }}
+                  >
                     <PageView page={page} />
                     <BlocksLayer pageId={page.id} />
                     <InkCanvas pageId={page.id} />
@@ -644,6 +646,7 @@ export default function PlannerShell() {
                     className="relative mx-auto overflow-hidden rounded-md"
                     style={{
                       containerType: "inline-size",
+                      isolation: "isolate",
                       width: pageWidthFor(viewSettings, feedBox.w - 56, feedBox.h - 12, PAGE_W / PAGE_H),
                     }}
                   >
