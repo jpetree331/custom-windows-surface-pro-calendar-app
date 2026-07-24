@@ -141,7 +141,7 @@ export default function SinglePageFeed({
       </div>
 
       {/* page-flip arrows + position */}
-      <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2">
+      <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 print:hidden">
         <button
           data-flip="prev"
           disabled={clampedIndex === 0}

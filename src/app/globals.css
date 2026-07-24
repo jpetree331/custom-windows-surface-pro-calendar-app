@@ -25,3 +25,38 @@ body {
   );
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
+
+/* Browser printing (Ctrl+P): one clean sheet showing just the current page.
+   The page's 1000:1300 aspect is a near-exact fit for Letter portrait.
+   (The ⬇ Page/Year PDF buttons remain the highest-fidelity export.) */
+@media print {
+  @page {
+    size: letter portrait;
+    margin: 6mm;
+  }
+  body {
+    background: white;
+  }
+  /* unlock the app-shell heights/scrolling so content can lay out on paper */
+  .h-dvh {
+    height: auto !important;
+  }
+  [data-single-feed],
+  [data-single-feed] > div {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  /* the current page fills the printable width (inline px width overridden) */
+  [data-page-index] {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+  [data-single-feed] .p-2 {
+    padding: 0 !important;
+  }
+  /* event chips: keep text readable even when the browser skips backgrounds */
+  [data-event-chip] {
+    color: #000 !important;
+    border: 0.5pt solid #94a3b8;
+  }
+}

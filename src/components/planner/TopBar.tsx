@@ -30,7 +30,7 @@ export default function TopBar({
   const nextYear = Math.max(...years, activeYear) + 1;
   return (
     <nav
-      className="flex h-9 shrink-0 items-stretch gap-[2px] bg-slate-300/80 px-1 pt-1"
+      className="flex h-9 shrink-0 items-stretch gap-[2px] bg-slate-300/80 px-1 pt-1 print:hidden"
       style={{ touchAction: "manipulation" }}
     >
       {MONTH_ABBR.map((abbr, m) => (

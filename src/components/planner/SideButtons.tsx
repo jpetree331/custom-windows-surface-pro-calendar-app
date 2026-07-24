@@ -6,7 +6,7 @@ import { SIDE_BUTTONS } from "@/lib/planner/constants";
 export default function SideButtons({ onJump }: { onJump: (target: string) => void }) {
   return (
     <div
-      className="pointer-events-none absolute right-1 top-12 z-20 flex flex-col gap-1.5"
+      className="pointer-events-none absolute right-1 top-12 z-20 flex flex-col gap-1.5 print:hidden"
       style={{ touchAction: "manipulation" }}
     >
       {SIDE_BUTTONS.map((b) => (

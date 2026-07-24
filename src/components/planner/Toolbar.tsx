@@ -93,7 +93,7 @@ export default function Toolbar({
     <div
       // flex-wrap: in portrait the tools flow onto a second VISIBLE row
       // instead of clipping inside a fixed-height scroller
-      className="flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-t border-slate-300 bg-white px-2 py-0.5 shadow-[0_-2px_6px_rgba(0,0,0,0.08)]"
+      className="flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-t border-slate-300 bg-white px-2 py-0.5 shadow-[0_-2px_6px_rgba(0,0,0,0.08)] print:hidden"
       style={{ touchAction: "manipulation" }}
     >
       {/* Jo's order: pens first (leftmost), then tools */}
