@@ -255,7 +255,12 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
           <div
             className="absolute left-0 flex flex-col items-start gap-0.5"
             style={{ top: block.type !== "image" ? "-3.6rem" : "-2rem" }}
-            onPointerDown={(e) => e.stopPropagation()}
+            // preventDefault: bar taps must NOT steal focus from the text box —
+            // otherwise picking a color mid-edit blurred and closed the editor
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
           >
             {block.type !== "image" && (
               <div className="flex items-center gap-1 rounded bg-white/90 px-1 py-0.5 shadow-sm">
@@ -414,14 +419,12 @@ export default function BlocksLayer({ pageId }: { pageId: string }) {
       }
       const rect = hostRef.current!.getBoundingClientRect();
       const scale = PAGE_W / rect.width;
-      // New text inherits the active pen color (Jo writes in category colors)
+      // New text starts in readable dark ink (Tim: light-blue pen color on
+      // the blue page was illegible); the swatches recolor it in one tap.
       const block = makeTextBlock(
         pageId,
         (e.clientX - rect.left) * scale,
-        (e.clientY - rect.top) * scale,
-        "",
-        "text",
-        ui.penColor
+        (e.clientY - rect.top) * scale
       );
       void addBlock(block).then(() => {
         ui.setSelectedBlockId(block.id);
