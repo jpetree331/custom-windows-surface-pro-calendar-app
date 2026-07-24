@@ -30,6 +30,10 @@ interface TokenResponse {
   error?: string;
 }
 
+interface TokenClientError {
+  type: "popup_failed_to_open" | "popup_closed" | "unknown";
+}
+
 declare global {
   interface Window {
     google?: {
@@ -39,6 +43,7 @@ declare global {
             client_id: string;
             scope: string;
             callback: (resp: TokenResponse) => void;
+            error_callback?: (err: TokenClientError) => void;
           }): { requestAccessToken(opts?: { prompt?: string }) : void };
         };
       };
@@ -103,6 +108,21 @@ export async function getAccessToken(): Promise<string> {
           // sessionStorage unavailable — token stays usable for this call chain
         }
         resolve(resp.access_token);
+      },
+      // Without this, a blocked or closed popup left the app waiting forever
+      // ("it just freezes") — now it fails loudly with the actual reason.
+      error_callback: (err) => {
+        if (err.type === "popup_failed_to_open") {
+          reject(
+            new Error(
+              "Google's sign-in popup was BLOCKED. Click the popup icon in the address bar (or Edge Settings → Cookies and site permissions → Pop-ups) to allow popups for this site, then try again."
+            )
+          );
+        } else if (err.type === "popup_closed") {
+          reject(new Error("The Google sign-in window was closed before finishing — try again."));
+        } else {
+          reject(new Error("Google sign-in failed to start. Reload the app and try again."));
+        }
       },
     });
     client.requestAccessToken();
