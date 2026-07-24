@@ -1,7 +1,7 @@
 /**
  * Google Drive appDataFolder client — the planner's cloud backup slot in Jo's
  * OWN Google account. The drive.appdata scope only exposes files this app
- * created; the rest of her Drive is invisible to us.
+ * created; the rest of the user's Drive is invisible to us.
  * Endpoints verified against developers.google.com/workspace/drive/api/reference (2026-07-08).
  * `fetchImpl` is injectable for tests (same pattern as api.ts).
  */

@@ -121,8 +121,8 @@ export default function BackupPanel() {
         <div className="mt-3" data-drive-backup>
           <p className="mb-2 text-xs text-slate-500">
             <span className="font-semibold">Google Drive:</span> once connected, the app
-            auto-backs-up to a hidden app folder in Jo&apos;s own Drive every few
-            minutes of use — it can only see its own file, nothing else in her Drive.
+            auto-backs-up to a hidden app folder in your own Google Drive every few
+            minutes of use — it can only see its own file, nothing else in your Drive.
             {driveAt && (
               <span data-drive-status> Last Drive backup: {new Date(driveAt).toLocaleString()}.</span>
             )}
