@@ -90,13 +90,39 @@ export async function getAccessToken(): Promise<string> {
   const cached = cachedToken();
   if (cached) return cached;
   await loadGis();
+  if (!window.google?.accounts?.oauth2) {
+    // Privacy browsers/blockers can serve a neutered stub of the GIS script.
+    throw new Error(
+      "Google's sign-in library was blocked by this browser. Disable content blocking for this site (or use Chrome/Edge) and try again."
+    );
+  }
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      fn();
+    };
+    // Nothing may hang the Connect button forever: if Google never calls back
+    // (e.g. its popup showed an origin error we can't observe), fail loudly.
+    const watchdog = setTimeout(
+      () =>
+        settle(() =>
+          reject(
+            new Error(
+              "Google sign-in didn't complete after 2 minutes. If the Google window showed an error mentioning 'origin', this app's web address still needs to be added to Authorized JavaScript origins in the Google console."
+            )
+          )
+        ),
+      120_000
+    );
     const client = window.google!.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: GOOGLE_SCOPE,
       callback: (resp) => {
         if (resp.error || !resp.access_token) {
-          reject(new Error(`Google auth failed: ${resp.error ?? "no token"}`));
+          settle(() => reject(new Error(`Google auth failed: ${resp.error ?? "no token"}`)));
           return;
         }
         try {
@@ -107,21 +133,23 @@ export async function getAccessToken(): Promise<string> {
         } catch {
           // sessionStorage unavailable — token stays usable for this call chain
         }
-        resolve(resp.access_token);
+        settle(() => resolve(resp.access_token));
       },
       // Without this, a blocked or closed popup left the app waiting forever
       // ("it just freezes") — now it fails loudly with the actual reason.
       error_callback: (err) => {
         if (err.type === "popup_failed_to_open") {
-          reject(
-            new Error(
-              "Google's sign-in popup was BLOCKED. Click the popup icon in the address bar (or Edge Settings → Cookies and site permissions → Pop-ups) to allow popups for this site, then try again."
+          settle(() =>
+            reject(
+              new Error(
+                "Google's sign-in popup was BLOCKED. Click the popup icon in the address bar (or the browser's site permissions) to allow popups for this site, then try again."
+              )
             )
           );
         } else if (err.type === "popup_closed") {
-          reject(new Error("The Google sign-in window was closed before finishing — try again."));
+          settle(() => reject(new Error("The Google sign-in window was closed before finishing — try again.")));
         } else {
-          reject(new Error("Google sign-in failed to start. Reload the app and try again."));
+          settle(() => reject(new Error("Google sign-in failed to start. Reload the app and try again.")));
         }
       },
     });
