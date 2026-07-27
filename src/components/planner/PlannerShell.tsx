@@ -26,6 +26,7 @@ import {
   pasteClipboardBlock,
   pastePageAfter,
   pasteSelectionAt,
+  renamePage,
 } from "@/lib/blocks/actions";
 import { getTimeFormat, setTimeFormat as persistTimeFormat, type TimeFormat } from "@/lib/settings";
 import { PLANNER_SLUG } from "@/lib/branding";
@@ -68,11 +69,16 @@ export default function PlannerShell() {
   const [showAddPage, setShowAddPage] = useState(false);
   const [addPageAnchor, setAddPageAnchor] = useState<string | null>(null);
   const [newPageName, setNewPageName] = useState("");
+  const [renameTarget, setRenameTarget] = useState<{ pageId: string; label: string } | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const imageFileRef = useRef<HTMLInputElement>(null);
+  const imageTargetRef = useRef<{ pageId: string; x: number; y: number } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
     pageId: string;
     label: string;
+    sectionKey: string;
     /** click point in page-logical coords (for Paste selection here). */
     pageX: number;
     pageY: number;
@@ -404,14 +410,19 @@ export default function PlannerShell() {
     setCurrentPageId(mid.id);
   }, []);
 
-  const pasteImage = useCallback(async (blob: Blob) => {
-    const pageId = viewportCenterPageId();
-    if (!pageId) return;
-    const block = await makeImageBlock(pageId, blob, PAGE_W * 0.25, PAGE_H * 0.3);
-    await addBlock(block);
-    setTool("select");
-    setSelectedBlockId(block.id);
-  }, []);
+  const pasteImage = useCallback(
+    async (blob: Blob, target?: { pageId: string; x: number; y: number }) => {
+      const pageId = target?.pageId ?? viewportCenterPageId();
+      if (!pageId) return;
+      const block = await makeImageBlock(
+        pageId, blob, target?.x ?? PAGE_W * 0.25, target?.y ?? PAGE_H * 0.3
+      );
+      await addBlock(block);
+      setTool("select");
+      setSelectedBlockId(block.id);
+    },
+    []
+  );
 
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
@@ -504,8 +515,6 @@ export default function PlannerShell() {
     };
   }, [pasteImage, pasteSelectionCentered]);
 
-  const onAddImage = useCallback((file: File) => void pasteImage(file), [pasteImage]);
-
   // Scheduled Google auto-sync: checked shortly after launch and then every
   // few minutes; maybeAutoSync gates itself on the user's chosen interval.
   useEffect(() => {
@@ -545,12 +554,23 @@ export default function PlannerShell() {
   );
 
   const onExport = useCallback(
-    async (scope: "year" | "page") => {
+    async (req: { scope: "year" | "page" | "range"; fromIndex?: number; toIndex?: number }) => {
       const { exportPdf } = await import("@/lib/pdf/export");
-      const pageId = scope === "page" ? (viewportCenterPageId() ?? undefined) : undefined;
-      const bytes = await exportPdf({ scope, pageId, plannerId: planner?.id });
+      const pageId = req.scope === "page" ? (viewportCenterPageId() ?? undefined) : undefined;
+      const bytes = await exportPdf({
+        scope: req.scope,
+        pageId,
+        fromIndex: req.fromIndex,
+        toIndex: req.toIndex,
+        plannerId: planner?.id,
+      });
       const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
-      const name = scope === "year" ? `${PLANNER_SLUG}-${planner?.year ?? ""}.pdf` : `${PLANNER_SLUG}-page.pdf`;
+      const name =
+        req.scope === "year"
+          ? `${PLANNER_SLUG}-${planner?.year ?? ""}.pdf`
+          : req.scope === "range"
+            ? `${PLANNER_SLUG}-pages-${(req.fromIndex ?? 0) + 1}-${(req.toIndex ?? 0) + 1}.pdf`
+            : `${PLANNER_SLUG}-page.pdf`;
       await saveFile(name, blob); // chosen folder if set, else browser download
     },
     [viewportCenterPageId, planner]
@@ -601,6 +621,7 @@ export default function PlannerShell() {
                     const s = r ? PAGE_W / r.width : 1;
                     setCtxMenu({
                       x: e.clientX, y: e.clientY, pageId: page.id, label: page.label,
+                      sectionKey: String(page.meta?.sectionKey ?? ""),
                       pageX: r ? (e.clientX - r.left) * s : PAGE_W / 2,
                       pageY: r ? (e.clientY - r.top) * s : PAGE_H / 2,
                     });
@@ -646,6 +667,7 @@ export default function PlannerShell() {
                     const s = r ? PAGE_W / r.width : 1;
                     setCtxMenu({
                       x: e.clientX, y: e.clientY, pageId: page.id, label: page.label,
+                      sectionKey: String(page.meta?.sectionKey ?? ""),
                       pageX: r ? (e.clientX - r.left) * s : PAGE_W / 2,
                       pageY: r ? (e.clientY - r.top) * s : PAGE_H / 2,
                     });
@@ -672,13 +694,16 @@ export default function PlannerShell() {
           )}
         </div>
         <Toolbar
-          onAddImage={onAddImage}
-          onAddPage={() => setShowAddPage(true)}
           onOpenManage={() => setShowManage(true)}
-          onExport={(scope) => void onExport(scope)}
-          onPasteSelection={() => void pasteSelectionCentered()}
+          onExport={(req) => void onExport(req)}
           viewSettings={viewSettings}
           onChangeViewSettings={changeViewSettings}
+          pageCount={pages.length}
+          currentPageIndex={
+            viewSettings.layout === "single"
+              ? Math.min(singleIndex + 1, pages.length)
+              : Math.max(1, pages.findIndex((p) => p.id === currentPageId) + 1)
+          }
         />
         {ctxMenu && (
           <div className="fixed inset-0 z-50" data-page-context-menu onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}>
@@ -704,6 +729,19 @@ export default function PlannerShell() {
                   },
                 },
                 {
+                  key: "insert-image",
+                  label: "🖼 Insert image…",
+                  run: () => {
+                    imageTargetRef.current = {
+                      pageId: ctxMenu.pageId,
+                      x: ctxMenu.pageX,
+                      y: ctxMenu.pageY,
+                    };
+                    imageFileRef.current?.click();
+                    setCtxMenu(null);
+                  },
+                },
+                {
                   key: "copy",
                   label: "⿻ Copy page",
                   run: () => {
@@ -714,7 +752,7 @@ export default function PlannerShell() {
                 ...(hasSelectionClipboard()
                   ? [{
                       key: "paste-selection",
-                      label: "⬚ Paste selection here",
+                      label: "📋 Paste",
                       run: () => {
                         void pasteSelectionAt(ctxMenu.pageId, ctxMenu.pageX, ctxMenu.pageY).then(
                           (result) => result && setSelection(result)
@@ -743,6 +781,19 @@ export default function PlannerShell() {
                     setCtxMenu(null);
                   },
                 },
+                // Only Jo's own added pages can be renamed — the calendar's
+                // section pages keep their fixed names.
+                ...(ctxMenu.sectionKey === "custom"
+                  ? [{
+                      key: "rename",
+                      label: "✎ Rename page…",
+                      run: () => {
+                        setRenameTarget({ pageId: ctxMenu.pageId, label: ctxMenu.label });
+                        setRenameDraft(ctxMenu.label);
+                        setCtxMenu(null);
+                      },
+                    }]
+                  : []),
               ].map((item) => (
                 <button
                   key={item.key}
@@ -783,7 +834,66 @@ export default function PlannerShell() {
           </div>
         )}
         {showManage && (
-          <ManageDialog plannerId={planner.id} year={planner.year} onClose={() => setShowManage(false)} />
+          <ManageDialog
+            plannerId={planner.id}
+            year={planner.year}
+            onClose={() => setShowManage(false)}
+            viewSettings={viewSettings}
+            onChangeViewSettings={changeViewSettings}
+          />
+        )}
+        {/* hidden input for the right-click "Insert image…" item */}
+        <input
+          ref={imageFileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          data-input="insert-image-file"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            const target = imageTargetRef.current;
+            imageTargetRef.current = null;
+            if (f) void pasteImage(f, target ?? undefined);
+            e.target.value = "";
+          }}
+        />
+        {renameTarget && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            data-rename-page-dialog
+            onClick={() => setRenameTarget(null)}
+          >
+            <form
+              className="w-full max-w-xs rounded-lg bg-white p-4 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (renameDraft.trim()) void renamePage(renameTarget.pageId, renameDraft);
+                setRenameTarget(null);
+              }}
+            >
+              <h2 className="mb-2 text-base font-bold text-slate-800">Rename page</h2>
+              <input
+                autoFocus
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                data-input="rename-page-name"
+                className="mb-3 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRenameTarget(null)}
+                  className="rounded px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white">
+                  Rename
+                </button>
+              </div>
+            </form>
+          </div>
         )}
         {showAddPage && (
           <div

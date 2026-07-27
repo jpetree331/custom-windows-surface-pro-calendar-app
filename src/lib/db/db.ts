@@ -43,6 +43,11 @@ export class JotterDB extends Dexie {
     this.version(2).stores({
       kv: "key",
     });
+    // v3: extra event indexes only (notice cleanup + per-day chip queries).
+    // Purely additive — rows and other tables untouched.
+    this.version(3).stores({
+      events: "id, plannerId, date, googleId, sourceEventId, [plannerId+date]",
+    });
   }
 }
 

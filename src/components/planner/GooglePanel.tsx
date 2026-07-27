@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { getAccessToken, googleClientId } from "@/lib/google/auth";
-import { insertEvent } from "@/lib/google/api";
-import { importYear, type ImportResult } from "@/lib/google/import";
+import { insertEvent, listCalendars, type GCalendar } from "@/lib/google/api";
+import {
+  getGoogleCalendarIds,
+  importYear,
+  setGoogleCalendarIds,
+  type ImportResult,
+} from "@/lib/google/import";
 import {
   getAutoSyncInterval,
   lastAutoSyncAt,
@@ -23,7 +28,9 @@ const AUTO_SYNC_CHOICES: { value: AutoSyncInterval; label: string }[] = [
 function importSummary(r: ImportResult): string {
   const parts = [
     `Imported ${r.total} items from ${r.calendars} calendar${r.calendars === 1 ? "" : "s"}`,
-    `(${r.added} new, ${r.updated} refreshed${r.tasks ? `, ${r.tasks} Google Tasks` : ""}).`,
+    `(${r.added} new, ${r.updated} refreshed${r.tasks ? `, ${r.tasks} Google Tasks` : ""}${
+      r.notices ? `, ${r.notices} reminder chips` : ""
+    }).`,
   ];
   if (r.warnings.length > 0) parts.push(`⚠ ${r.warnings.join(" ")}`);
   return parts.join(" ");
@@ -42,6 +49,32 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
   const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [autoSync, setAutoSync] = useState<AutoSyncInterval>("off");
   const [lastSync, setLastSync] = useState<number | null>(null);
+  const [calendars, setCalendars] = useState<GCalendar[] | null>(null);
+  const [chosenIds, setChosenIds] = useState<string[] | null>(null);
+  const [calBusy, setCalBusy] = useState(false);
+
+  // Lazy-loaded on demand — opening settings must never pop a Google window.
+  const loadCalendars = async () => {
+    setCalBusy(true);
+    try {
+      const token = await getAccessToken();
+      const all = await listCalendars(token);
+      setCalendars(all);
+      const saved = await getGoogleCalendarIds(plannerId);
+      setChosenIds(saved ?? all.filter((c) => c.primary || c.selected).map((c) => c.id));
+    } catch (err) {
+      setStatus(String(err instanceof Error ? err.message : err));
+    } finally {
+      setCalBusy(false);
+    }
+  };
+
+  const toggleCalendar = (id: string) => {
+    if (!chosenIds) return;
+    const next = chosenIds.includes(id) ? chosenIds.filter((c) => c !== id) : [...chosenIds, id];
+    setChosenIds(next);
+    void setGoogleCalendarIds(plannerId, next);
+  };
 
   useEffect(() => {
     setAutoSync(getAutoSyncInterval());
@@ -140,6 +173,43 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
             Runs in the background while the app is open; a small Google window may
             flash briefly when it refreshes access.
           </p>
+        </div>
+      )}
+      {googleClientId() && (
+        <div className="mb-3" data-calendar-checklist>
+          {!calendars ? (
+            <button
+              onClick={() => void loadCalendars()}
+              disabled={calBusy}
+              data-action="choose-calendars"
+              className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            >
+              {calBusy ? "Loading…" : "Choose which calendars import…"}
+            </button>
+          ) : (
+            <>
+              <p className="mb-1 text-xs font-semibold text-slate-600">
+                Calendars to import (uncheck “Phases of the Moon” etc.):
+              </p>
+              <div className="max-h-36 overflow-y-auto rounded border border-slate-200 p-1.5">
+                {calendars.map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 py-0.5 text-sm">
+                    <input
+                      type="checkbox"
+                      data-google-calendar-checkbox={c.id}
+                      checked={chosenIds?.includes(c.id) ?? false}
+                      onChange={() => toggleCalendar(c.id)}
+                    />
+                    <span className="truncate">
+                      {c.summary ?? c.id}
+                      {c.primary ? " (main)" : ""}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Takes effect on the next sync.</p>
+            </>
+          )}
         </div>
       )}
       <form onSubmit={createEvent} className="space-y-1.5">

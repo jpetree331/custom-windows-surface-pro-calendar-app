@@ -196,6 +196,87 @@ export async function moveSelectionContents(sel: AreaSelectionRef, dx: number, d
   });
 }
 
+/**
+ * Scale everything in a selection from baseRect→targetRect, SAME membership
+ * (a resize-drag scales what's selected — it does not re-capture what now
+ * falls inside the box). Stroke width and block fontSize scale by the
+ * geometric-mean factor; point pressure is untouched. One undo step.
+ */
+export async function scaleSelectionContents(
+  sel: AreaSelectionRef,
+  baseRect: { x: number; y: number; w: number; h: number },
+  targetRect: { x: number; y: number; w: number; h: number }
+) {
+  const { strokes, blocks } = await selectionRows(sel);
+  if (strokes.length === 0 && blocks.length === 0) return;
+  const sx = targetRect.w / Math.max(1e-6, baseRect.w);
+  const sy = targetRect.h / Math.max(1e-6, baseRect.h);
+  const sAvg = Math.sqrt(Math.max(1e-6, sx * sy));
+  const mapX = (x: number) => targetRect.x + (x - baseRect.x) * sx;
+  const mapY = (y: number) => targetRect.y + (y - baseRect.y) * sy;
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const now = Date.now();
+
+  const strokesAfter = strokes.map((s) => ({
+    ...s,
+    points: s.points.map(([x, y, p]) => [mapX(x), mapY(y), p] as [number, number, number]),
+    width: clamp(s.width * sAvg, 0.15, 8),
+  }));
+  const blocksAfter = blocks.map((b) => ({
+    ...b,
+    x: mapX(b.x),
+    y: mapY(b.y),
+    w: Math.max(20, b.w * sx),
+    h: Math.max(16, b.h * sy),
+    fontSize:
+      b.fontSize !== undefined ? clamp(Math.round(b.fontSize * sAvg), 5, 28) : b.fontSize,
+    updatedAt: now,
+  }));
+
+  await db.transaction("rw", db.strokes, db.blocks, async () => {
+    await db.strokes.bulkPut(strokesAfter);
+    await db.blocks.bulkPut(blocksAfter);
+  });
+  for (const s of strokesAfter) await queueSync("strokes", s.id, "put");
+  for (const b of blocksAfter) await queueSync("blocks", b.id, "put");
+  clearSelectionPathCache(sel); // geometry changed — cached outlines are stale
+  history.push({
+    kind: "batch",
+    entries: [
+      { kind: "updateStrokes", before: strokes, after: strokesAfter },
+      ...blocks.map((b, i) => ({ kind: "updateBlock" as const, before: b, after: blocksAfter[i] })),
+    ],
+  });
+}
+
+/**
+ * Recolor every selected stroke (and text/task blocks' text) as one undo
+ * step. Image blocks and eraser strokes are skipped. No path-cache clear:
+ * color is applied at draw time, not baked into the cached outline.
+ */
+export async function recolorSelectionContents(sel: AreaSelectionRef, color: string) {
+  const { strokes, blocks } = await selectionRows(sel);
+  const now = Date.now();
+  const inkBefore = strokes.filter((s) => s.tool !== "eraser");
+  const strokesAfter = inkBefore.map((s) => ({ ...s, color }));
+  const textBefore = blocks.filter((b) => b.type !== "image");
+  const blocksAfter = textBefore.map((b) => ({ ...b, color, categoryId: undefined, updatedAt: now }));
+  if (strokesAfter.length === 0 && blocksAfter.length === 0) return;
+  await db.transaction("rw", db.strokes, db.blocks, async () => {
+    await db.strokes.bulkPut(strokesAfter);
+    await db.blocks.bulkPut(blocksAfter);
+  });
+  for (const s of strokesAfter) await queueSync("strokes", s.id, "put");
+  for (const b of blocksAfter) await queueSync("blocks", b.id, "put");
+  history.push({
+    kind: "batch",
+    entries: [
+      { kind: "updateStrokes", before: inkBefore, after: strokesAfter },
+      ...textBefore.map((b, i) => ({ kind: "updateBlock" as const, before: b, after: blocksAfter[i] })),
+    ],
+  });
+}
+
 /** Delete everything inside the selection — one undo step brings it all back. */
 export async function deleteSelectionContents(sel: AreaSelectionRef) {
   const { strokes, blocks } = await selectionRows(sel);
@@ -259,16 +340,9 @@ function clearSelectionPathCache(sel: AreaSelectionRef) {
 
 /** Clipboard for ⬚ selections — contents normalized to their bbox origin. */
 let selectionClipboard: { strokes: Stroke[]; blocks: Block[]; w: number; h: number } | null = null;
-const selClipListeners = new Set<() => void>();
 
 export function hasSelectionClipboard(): boolean {
   return selectionClipboard !== null;
-}
-
-/** Subscribe UI (e.g. the toolbar Paste button) to clipboard availability. */
-export function onSelectionClipboardChange(fn: () => void): () => void {
-  selClipListeners.add(fn);
-  return () => selClipListeners.delete(fn);
 }
 
 /** Copy (or cut) everything in the selection for pasting on ANY page. */
@@ -293,7 +367,6 @@ export async function copySelectionToClipboard(sel: AreaSelectionRef, cut: boole
     w: maxX - minX,
     h: maxY - minY,
   };
-  selClipListeners.forEach((fn) => fn());
   if (cut) await deleteSelectionContents(sel);
 }
 
@@ -448,6 +521,15 @@ export async function addBlankPage(afterPageId: string, label: string): Promise<
   await queueSync("pages", page.id, "put");
   history.push({ kind: "duplicatePage", page, strokes: [], blocks: [] });
   return page;
+}
+
+/** Rename a custom page. Uppercased like every other page label; not
+ *  undoable, matching habit/category renames in settings. */
+export async function renamePage(pageId: string, label: string) {
+  const clean = label.trim().toUpperCase();
+  if (!clean) return;
+  await db.pages.update(pageId, { label: clean, updatedAt: Date.now() });
+  await queueSync("pages", pageId, "put");
 }
 
 /**

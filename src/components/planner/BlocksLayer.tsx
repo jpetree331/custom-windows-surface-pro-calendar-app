@@ -7,8 +7,9 @@ import type { Block } from "@/lib/db/types";
 import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 import { TEXT_SIZE_PT } from "@/lib/ink/tools";
 import { addBlock, deleteBlock, makeTextBlock, updateBlock, copyBlockToClipboard, carryTaskForward } from "@/lib/blocks/actions";
-import { RESIZE_HANDLES, resizeRect } from "./resize-handles";
+import { isCornerHandle, RESIZE_HANDLES, resizeRect, resizeRectAspectLocked } from "./resize-handles";
 import { usePlannerUI } from "./ui-context";
+import { useColorSwatches } from "./useColorSwatches";
 
 function ImageContent({ blob }: { blob: Blob }) {
   const url = useMemo(() => URL.createObjectURL(blob), [blob]);
@@ -17,35 +18,11 @@ function ImageContent({ blob }: { blob: Blob }) {
   return <img src={url} alt="" className="h-full w-full select-none object-fill" draggable={false} />;
 }
 
-const LAST_CUSTOM_KEY = "jotter.lastTextColor";
-
 function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   const ui = usePlannerUI();
   const selected = ui.selectedBlockId === block.id;
-  // Text-color swatches = HER categories (this year's only), deduped + black.
-  const categories =
-    useLiveQuery(
-      () => db.categories.where("plannerId").equals(ui.plannerId).sortBy("order"),
-      [ui.plannerId]
-    ) ?? [];
-  const [lastCustom, setLastCustom] = useState<string | null>(() =>
-    typeof localStorage === "undefined" ? null : localStorage.getItem(LAST_CUSTOM_KEY)
-  );
-  const swatches = (() => {
-    const seen = new Set<string>();
-    const out: { color: string; name: string }[] = [];
-    for (const c of categories) {
-      const key = c.color.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ color: c.color, name: c.name });
-    }
-    if (!seen.has("#000000")) out.push({ color: "#000000", name: "Black" });
-    if (lastCustom && !seen.has(lastCustom.toLowerCase()) && lastCustom.toLowerCase() !== "#000000") {
-      out.push({ color: lastCustom, name: "Custom" });
-    }
-    return out;
-  })();
+  // Text-color swatches shared with the ⬚ selection recolor bar.
+  const { swatches, rememberCustom } = useColorSwatches(ui.plannerId);
   const customColorRef = useRef<HTMLInputElement>(null);
   const scale = pageWidth / PAGE_W;
   // Geometry/font styling uses container units, NOT screen px: print re-lays
@@ -76,7 +53,12 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
   } | null>(null);
 
   const resizedRect = (st: NonNullable<typeof dragState.current>, dx: number, dy: number) => {
-    const r = resizeRect({ x: st.orig.x, y: st.orig.y, w: st.orig.w, h: st.orig.h }, st.edges ?? {}, dx, dy);
+    const base = { x: st.orig.x, y: st.orig.y, w: st.orig.w, h: st.orig.h };
+    const edges = st.edges ?? {};
+    // Corner handles keep the item's proportions (Jo); edges free-stretch.
+    const r = isCornerHandle(edges)
+      ? resizeRectAspectLocked(base, edges, dx, dy, 40, 24)
+      : resizeRect(base, edges, dx, dy);
     return {
       x: Math.max(0, Math.min(PAGE_W - 40, r.x)),
       y: Math.max(0, Math.min(PAGE_H - 24, r.y)),
@@ -91,7 +73,9 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
     dragState.current = null;
     const dx = (e.clientX - st.startX) / scale;
     const dy = (e.clientY - st.startY) / scale;
-    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    // Only a true no-op tap skips the write — a real pen nudge, however
+    // small, must commit (the old <1-unit dead zone silently ate moves).
+    if (dx === 0 && dy === 0) return;
     const after: Block =
       st.mode === "move"
         ? {
@@ -192,6 +176,10 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
           ui.tool === "select" || selected || (ui.tool === "text" && editing) ? "auto" : "none",
         outline: selected ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
         transform: undefined,
+        // NONE, like every other drag surface: Windows treats a pen drag as
+        // pannable "direct manipulation" — without this the browser stole the
+        // move mid-drag (Jo: "doesn't move, then jumps back").
+        touchAction: "none",
       }}
       onPointerDown={(e) => startDrag(e, "move")}
       onPointerMove={onDragMove}
@@ -298,12 +286,11 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
                   <input
                     ref={customColorRef}
                     type="color"
-                    defaultValue={lastCustom ?? "#0f172a"}
+                    defaultValue="#0f172a"
                     className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
                     onChange={(e) => {
                       const c = e.target.value;
-                      localStorage.setItem(LAST_CUSTOM_KEY, c);
-                      setLastCustom(c);
+                      rememberCustom(c);
                       setTextColor(c);
                     }}
                   />

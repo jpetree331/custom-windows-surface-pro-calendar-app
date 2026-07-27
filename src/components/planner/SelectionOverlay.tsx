@@ -7,10 +7,12 @@ import {
   deleteSelectionContents,
   duplicateSelectionContents,
   moveSelectionContents,
+  recolorSelectionContents,
+  scaleSelectionContents,
 } from "@/lib/blocks/actions";
-import { computeAreaSelection } from "@/lib/ink/select";
-import { RESIZE_HANDLES, resizeRect } from "./resize-handles";
+import { isCornerHandle, RESIZE_HANDLES, resizeRect, resizeRectAspectLocked } from "./resize-handles";
 import { usePlannerUI } from "./ui-context";
+import { useColorSwatches } from "./useColorSwatches";
 
 /**
  * The dashed box shown after a ⬚ area selection: drag it to move everything
@@ -21,6 +23,8 @@ export default function SelectionOverlay() {
   const ui = usePlannerUI();
   const hostRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<HTMLCanvasElement>(null);
+  const customColorRef = useRef<HTMLInputElement>(null);
+  const { swatches, rememberCustom } = useColorSwatches(ui.plannerId);
   const drag = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
   const resizing = useRef<{
     l: boolean; r: boolean; t: boolean; b: boolean;
@@ -28,35 +32,43 @@ export default function SelectionOverlay() {
     base: { x: number; y: number; w: number; h: number };
   } | null>(null);
 
-  /** Resize the selection box → re-capture what's inside the new area. */
-  const commitResize = async (dxPx: number, dyPx: number) => {
-    const rz = resizing.current;
-    const sel = ui.selection;
-    if (!rz || !sel) return;
+  type ResizeState = NonNullable<typeof resizing.current>;
+
+  /** Target rect for a handle drag — corner handles keep the scale (Jo). */
+  const resizeTarget = (rz: ResizeState, dxPx: number, dyPx: number) => {
     const dx = dxPx / scale;
     const dy = dyPx / scale;
-    let { x, y, w, h } = resizeRect(rz.base, rz, dx, dy);
-    x = Math.max(0, Math.min(PAGE_W - 12, x));
-    y = Math.max(0, Math.min(PAGE_H - 12, y));
-    w = Math.max(12, Math.min(PAGE_W - x, w));
-    h = Math.max(12, Math.min(PAGE_H - y, h));
-    const next = await computeAreaSelection(sel.pageId, { x, y, w, h });
-    ui.setSelection(next); // keep the box even if it now holds 0 items
+    const t = isCornerHandle(rz)
+      ? resizeRectAspectLocked(rz.base, rz, dx, dy)
+      : resizeRect(rz.base, rz, dx, dy);
+    const x = Math.max(0, Math.min(PAGE_W - 12, t.x));
+    const y = Math.max(0, Math.min(PAGE_H - 12, t.y));
+    return {
+      x,
+      y,
+      w: Math.max(12, Math.min(PAGE_W - x, t.w)),
+      h: Math.max(12, Math.min(PAGE_H - y, t.h)),
+    };
   };
 
+  /** Handle drag SCALES the selected contents (membership never changes) —
+   *  "resize selected handwriting by dragging" is exactly this. */
+  const commitResize = async (rz: ResizeState, dxPx: number, dyPx: number) => {
+    const sel = ui.selection;
+    if (!sel) return;
+    const target = resizeTarget(rz, dxPx, dyPx);
+    await scaleSelectionContents(sel, rz.base, target);
+    ui.setSelection({ ...sel, rect: target });
+  };
+
+  /** Live preview uses the SAME rect math as the commit — no pop on release. */
   const liveResizeStyle = (el: HTMLElement, dxPx: number, dyPx: number) => {
-    const rz = resizing.current;
-    if (!rz) return;
-    const b = rz.base;
-    const px = (u: number) => u * scale;
-    const nx = px(b.x) + (rz.l ? dxPx : 0);
-    const ny = px(b.y) + (rz.t ? dyPx : 0);
-    const nw = px(b.w) + (rz.r ? dxPx : 0) - (rz.l ? dxPx : 0);
-    const nh = px(b.h) + (rz.b ? dyPx : 0) - (rz.t ? dyPx : 0);
-    el.style.left = `${Math.min(nx, nx + nw)}px`;
-    el.style.top = `${Math.min(ny, ny + nh)}px`;
-    el.style.width = `${Math.abs(nw)}px`;
-    el.style.height = `${Math.abs(nh)}px`;
+    if (!resizing.current) return;
+    const r = resizeTarget(resizing.current, dxPx, dyPx);
+    el.style.left = `${r.x * scale}px`;
+    el.style.top = `${r.y * scale}px`;
+    el.style.width = `${r.w * scale}px`;
+    el.style.height = `${r.h * scale}px`;
   };
 
   /** Paint the selection's actual content (ink crop + block sketches) into
@@ -177,7 +189,8 @@ export default function SelectionOverlay() {
           className="pointer-events-none absolute inset-0 h-full w-full transition-opacity"
           style={{ opacity: 0 }}
         />
-        {/* corner + side handles: resize the box, re-capturing its contents */}
+        {/* corner + side handles: SCALE the selected contents (corners keep
+            the aspect ratio; edges stretch) */}
         {RESIZE_HANDLES.map((hd) => (
           <div
             key={hd.key}
@@ -191,6 +204,9 @@ export default function SelectionOverlay() {
                 startX: e.clientX, startY: e.clientY,
                 base: { ...sel.rect },
               };
+              // ghost = raster of the contents; the box's CSS resize
+              // stretches it for a live scale preview
+              buildGhost();
               try {
                 (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               } catch {
@@ -201,17 +217,55 @@ export default function SelectionOverlay() {
               if (!resizing.current) return;
               const box = (e.currentTarget as HTMLElement).closest("[data-selection-box]") as HTMLElement;
               liveResizeStyle(box, e.clientX - resizing.current.startX, e.clientY - resizing.current.startY);
+              if (ghostRef.current) ghostRef.current.style.opacity = "0.75";
             }}
             onPointerUp={(e) => {
-              if (!resizing.current) return;
-              const dx = e.clientX - resizing.current.startX;
-              const dy = e.clientY - resizing.current.startY;
-              void commitResize(dx, dy).finally(() => {
-                resizing.current = null;
-              });
+              const rz = resizing.current;
+              if (!rz) return;
+              // null SYNCHRONOUSLY (like the move path) — the async commit
+              // must never race a second, quick handle drag
+              resizing.current = null;
+              if (ghostRef.current) ghostRef.current.style.opacity = "0";
+              void commitResize(rz, e.clientX - rz.startX, e.clientY - rz.startY);
             }}
           />
         ))}
+        {/* recolor row — same palette as the text menu (Jo's categories) */}
+        <div
+          className="absolute -top-16 left-0 flex items-center gap-1"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {swatches.map((s) => (
+            <button
+              key={s.color + s.name}
+              data-selection-color={s.color}
+              title={`Recolor selection — ${s.name}`}
+              className="h-5 w-5 rounded-full border-2 border-white shadow"
+              style={{ background: s.color }}
+              onClick={() => void recolorSelectionContents(sel, s.color)}
+            />
+          ))}
+          <span className="relative inline-flex">
+            <button
+              data-selection-color-custom
+              title="Custom color…"
+              className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-[11px] font-bold text-slate-700 shadow"
+              onClick={() => customColorRef.current?.click()}
+            >
+              ＋
+            </button>
+            <input
+              ref={customColorRef}
+              type="color"
+              defaultValue="#0f172a"
+              className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
+              onChange={(e) => {
+                rememberCustom(e.target.value);
+                void recolorSelectionContents(sel, e.target.value);
+              }}
+            />
+          </span>
+        </div>
         <div
           className="absolute -top-9 left-0 flex gap-1"
           onPointerDown={(e) => e.stopPropagation()}

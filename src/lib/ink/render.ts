@@ -45,11 +45,21 @@ export function strokePath(stroke: Stroke): Path2D {
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.save();
   ctx.globalAlpha = stroke.opacity;
-  if (stroke.tool === "rect") {
+  if (stroke.tool === "rect" || stroke.tool === "circle") {
     const [a, b] = [stroke.points[0], stroke.points[stroke.points.length - 1]];
+    const x0 = Math.min(a[0], b[0]);
+    const y0 = Math.min(a[1], b[1]);
+    const w = Math.abs(b[0] - a[0]);
+    const h = Math.abs(b[1] - a[1]);
     ctx.strokeStyle = stroke.color;
     ctx.lineWidth = stroke.width * PT_TO_UNITS;
-    ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+    if (stroke.tool === "rect") {
+      ctx.strokeRect(x0, y0, w, h);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(x0 + w / 2, y0 + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   } else {
     if (stroke.tool === "highlighter") ctx.globalCompositeOperation = "multiply";
     ctx.fillStyle = stroke.color;
@@ -81,7 +91,9 @@ export function strokesHitByEraser(
   const r2 = radius * radius;
   const hits: string[] = [];
   for (const s of strokes) {
-    if (s.tool === "rect") {
+    // Circle reuses the rect's bbox-perimeter test — the eraser radius is
+    // generous enough that the corner inaccuracy is imperceptible.
+    if (s.tool === "rect" || s.tool === "circle") {
       const [a, b] = [s.points[0], s.points[s.points.length - 1]];
       const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
       const [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];

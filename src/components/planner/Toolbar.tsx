@@ -1,48 +1,143 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { PEN_COLORS, HIGHLIGHTER_WIDTH_PT, ERASER_RADIUS_PT, type ToolId } from "@/lib/ink/tools";
 import * as history from "@/lib/history";
-import { hasSelectionClipboard, onSelectionClipboardChange } from "@/lib/blocks/actions";
 import type { ViewSettings } from "@/lib/planner/view-settings";
 import { usePlannerUI } from "./ui-context";
 
-/** Bottom toolbar: pens, highlighter, eraser, text, rect, image, undo/redo, duplicate. */
+export interface ExportRequest {
+  scope: "page" | "year" | "range";
+  fromIndex?: number;
+  toIndex?: number;
+}
+
+/**
+ * Color + thickness editor popover, shared by pen slots and the shape tools.
+ * "Previous color" restores the snapshot taken when the popover opened —
+ * Jo's "revert my last change" (she doesn't want factory reset).
+ */
+function ColorWidthEditor({
+  name,
+  color,
+  width,
+  anchor,
+  onColor,
+  onWidth,
+  onPrevious,
+  onClose,
+}: {
+  name: string;
+  color: string;
+  width: number;
+  anchor: { left: number; bottom: number };
+  onColor: (c: string) => void;
+  onWidth: (w: number) => void;
+  onPrevious: () => void;
+  onClose: () => void;
+}) {
+  const [hexDraft, setHexDraft] = useState(color);
+  // keep the hex field in step when the native picker changes the color
+  useEffect(() => setHexDraft(color), [color]);
+  return (
+    <>
+      <div className="fixed inset-0 z-30" data-pen-editor-backdrop onClick={onClose} />
+      <div
+        data-pen-editor={name}
+        className="fixed z-40 w-48 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+        style={{ left: anchor.left, bottom: anchor.bottom }}
+      >
+        <div className="mb-1 text-xs font-bold text-slate-600">{name}</div>
+        <div className="mb-2 flex items-center gap-2">
+          <input
+            type="color"
+            value={color}
+            data-input="pen-color"
+            onChange={(e) => onColor(e.target.value)}
+            className="h-7 w-10 cursor-pointer rounded border border-slate-300"
+          />
+          <input
+            type="text"
+            value={hexDraft}
+            data-input="pen-hex"
+            maxLength={7}
+            spellCheck={false}
+            onChange={(e) => {
+              const v = e.target.value.startsWith("#") ? e.target.value : `#${e.target.value}`;
+              setHexDraft(v);
+              if (/^#[0-9a-fA-F]{6}$/.test(v)) onColor(v);
+            }}
+            className="w-20 rounded border border-slate-300 px-1 py-0.5 font-mono text-xs"
+          />
+        </div>
+        <label className="block text-xs text-slate-500">
+          Thickness: {width}pt
+          <input
+            type="range"
+            min={0.5}
+            max={4}
+            step={0.25}
+            value={width}
+            data-input="pen-width"
+            onChange={(e) => onWidth(Number(e.target.value))}
+            className="w-full"
+          />
+        </label>
+        <div className="mt-1 flex justify-between">
+          <button
+            data-action="pen-previous"
+            title="Back to the color this had when you opened the editor"
+            className="text-xs text-slate-500 underline"
+            onClick={onPrevious}
+          >
+            Previous color
+          </button>
+          <button className="text-xs font-semibold text-blue-600" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Bottom toolbar: pens, tools, undo/redo, zoom, PDF export, settings. */
 export default function Toolbar({
-  onAddImage,
-  onAddPage,
   onOpenManage,
   onExport,
-  onPasteSelection,
   viewSettings,
   onChangeViewSettings,
+  pageCount,
+  currentPageIndex,
 }: {
-  onAddImage: (file: File) => void;
-  onAddPage: () => void;
   onOpenManage: () => void;
-  onExport: (scope: "year" | "page") => void;
-  onPasteSelection: () => void;
+  onExport: (req: ExportRequest) => void;
   viewSettings: ViewSettings;
   onChangeViewSettings: (s: ViewSettings) => void;
+  pageCount: number;
+  currentPageIndex: number;
 }) {
-  const [viewMenu, setViewMenu] = useState(false);
   const ui = usePlannerUI();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [, force] = useState(0);
   useEffect(() => history.onHistoryChange(() => force((n) => n + 1)), []);
-  useEffect(() => onSelectionClipboardChange(() => force((n) => n + 1)), []);
 
   // Per-slot palette customization (Jo's colors are the defaults).
   const [palette, setPalette] = useState(PEN_COLORS);
-  const [editSlot, setEditSlot] = useState<number | null>(null);
-  // Popovers must be position:fixed — the toolbar's overflow-x-auto CLIPS
-  // anything absolutely positioned above it (they'd open invisibly).
+  // number = pen slot; "rect"/"circle" = the shared shape color/width editor
+  const [editSlot, setEditSlot] = useState<number | "rect" | "circle" | null>(null);
+  const [openSnapshot, setOpenSnapshot] = useState<{ color: string; width: number } | null>(null);
+  // Popovers must be position:fixed — the toolbar's overflow CLIPS anything
+  // absolutely positioned above it (they'd open invisibly).
   const [editAnchor, setEditAnchor] = useState<{ left: number; bottom: number } | null>(null);
-  const [viewAnchor, setViewAnchor] = useState<{ right: number; bottom: number } | null>(null);
+  const [exportMenu, setExportMenu] = useState(false);
+  const [exportAnchor, setExportAnchor] = useState<{ right: number; bottom: number } | null>(null);
+  const [exportScope, setExportScope] = useState<"page" | "range" | "year">("page");
+  const [rangeFrom, setRangeFrom] = useState(1);
+  const [rangeTo, setRangeTo] = useState(1);
   const anchorFor = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
     return {
-      left: Math.min(Math.max(8, r.left + r.width / 2 - 88), window.innerWidth - 184),
+      left: Math.min(Math.max(8, r.left + r.width / 2 - 88), window.innerWidth - 200),
       right: Math.max(8, window.innerWidth - r.right),
       bottom: window.innerHeight - r.top + 6,
     };
@@ -52,6 +147,8 @@ export default function Toolbar({
       const saved = localStorage.getItem("jotter.palette");
       if (saved) {
         const rows = JSON.parse(saved) as { color: string; width: number }[];
+        // Length-agnostic merge: a legacy 7-slot save leaves the new 8th slot
+        // at its factory default ({...p, ...undefined} is a no-op spread).
         const merged = PEN_COLORS.map((p, i) => ({ ...p, ...rows[i] }));
         setPalette(merged);
         // Seed the shared pen state too, or the first stroke after a reload
@@ -64,15 +161,19 @@ export default function Toolbar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const updateSlot = (i: number, patch: { color?: string; width?: number }) => {
-    setPalette((prev) => {
-      const next = prev.map((p, j) => (j === i ? { ...p, ...patch } : p));
-      localStorage.setItem(
-        "jotter.palette",
-        JSON.stringify(next.map(({ color, width }) => ({ color, width })))
-      );
-      ui.setPen(next[i].color, next[i].width);
-      return next;
-    });
+    // NOT inside the setPalette updater: updaters run during render, and
+    // calling ui.setPen there is a cross-component setState-in-render.
+    const next = palette.map((p, j) => (j === i ? { ...p, ...patch } : p));
+    localStorage.setItem(
+      "jotter.palette",
+      JSON.stringify(next.map(({ color, width }) => ({ color, width })))
+    );
+    setPalette(next);
+    ui.setPen(next[i].color, next[i].width);
+  };
+  const closeEditor = () => {
+    setEditSlot(null);
+    setOpenSnapshot(null);
   };
 
   const toolBtn = (tool: ToolId, label: string, title: string, extra?: string) => (
@@ -84,6 +185,34 @@ export default function Toolbar({
       className={`flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg ${
         ui.tool === tool ? "bg-slate-300 shadow-inner" : "hover:bg-slate-100"
       } ${extra ?? ""}`}
+    >
+      {label}
+    </button>
+  );
+
+  /** Shape buttons: tap = pick the tool; tap again = edit its color/width
+   *  (bound to the shared pen state, so shapes follow the active pen). */
+  const shapeBtn = (tool: "rect" | "circle", label: string, title: string) => (
+    <button
+      key={tool}
+      data-tool={tool}
+      title={`${title} — tap again to change color/thickness`}
+      onClick={(e) => {
+        if (ui.tool === tool) {
+          if (editSlot === tool) {
+            closeEditor();
+          } else {
+            setEditAnchor(anchorFor(e.currentTarget));
+            setOpenSnapshot({ color: ui.penColor, width: ui.penWidth });
+            setEditSlot(tool);
+          }
+        } else {
+          ui.setTool(tool);
+        }
+      }}
+      className={`flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg ${
+        ui.tool === tool ? "bg-slate-300 shadow-inner" : "hover:bg-slate-100"
+      }`}
     >
       {label}
     </button>
@@ -108,9 +237,10 @@ export default function Toolbar({
                 if (active) {
                   // second tap opens the color/thickness editor
                   if (editSlot === i) {
-                    setEditSlot(null);
+                    closeEditor();
                   } else {
                     setEditAnchor(anchorFor(e.currentTarget));
+                    setOpenSnapshot({ color: p.color, width: p.width });
                     setEditSlot(i);
                   }
                 } else {
@@ -132,57 +262,16 @@ export default function Toolbar({
               />
             </button>
             {editSlot === i && editAnchor && (
-              <>
-                <div
-                  className="fixed inset-0 z-30"
-                  data-pen-editor-backdrop
-                  onClick={() => setEditSlot(null)}
-                />
-                <div
-                  data-pen-editor={p.name}
-                  className="fixed z-40 w-44 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
-                  style={{ left: editAnchor.left, bottom: editAnchor.bottom }}
-                >
-                <div className="mb-1 text-xs font-bold text-slate-600">{p.name}</div>
-                <div className="mb-2 flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={p.color}
-                    data-input="pen-color"
-                    onChange={(e) => updateSlot(i, { color: e.target.value })}
-                    className="h-7 w-10 cursor-pointer rounded border border-slate-300"
-                  />
-                  <span className="text-xs text-slate-500">{p.color}</span>
-                </div>
-                <label className="block text-xs text-slate-500">
-                  Thickness: {p.width}pt
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={4}
-                    step={0.25}
-                    value={p.width}
-                    data-input="pen-width"
-                    onChange={(e) => updateSlot(i, { width: Number(e.target.value) })}
-                    className="w-full"
-                  />
-                </label>
-                <div className="mt-1 flex justify-between">
-                  <button
-                    className="text-xs text-slate-500 underline"
-                    onClick={() => updateSlot(i, { color: PEN_COLORS[i].color, width: PEN_COLORS[i].width })}
-                  >
-                    Reset
-                  </button>
-                  <button
-                    className="text-xs font-semibold text-blue-600"
-                    onClick={() => setEditSlot(null)}
-                  >
-                    Done
-                  </button>
-                </div>
-                </div>
-              </>
+              <ColorWidthEditor
+                name={p.name}
+                color={p.color}
+                width={p.width}
+                anchor={editAnchor}
+                onColor={(c) => updateSlot(i, { color: c })}
+                onWidth={(w) => updateSlot(i, { width: w })}
+                onPrevious={() => openSnapshot && updateSlot(i, openSnapshot)}
+                onClose={closeEditor}
+              />
             )}
           </div>
         );
@@ -191,37 +280,23 @@ export default function Toolbar({
       {toolBtn("highlighter", "🖍", `Highlighter (${HIGHLIGHTER_WIDTH_PT}pt)`)}
       {toolBtn("eraser", "◨", `Eraser (${ERASER_RADIUS_PT}pt) — removes whole strokes`)}
       {toolBtn("text", "T", "Text box — tap a page to place")}
-      {toolBtn("rect", "▭", "Rectangle")}
-      <button
-        data-tool="image"
-        title="Insert image"
-        onClick={() => fileRef.current?.click()}
-        className="flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100"
-      >
-        🖼
-      </button>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onAddImage(f);
-          e.target.value = "";
-        }}
-      />
+      {shapeBtn("rect", "▭", "Rectangle — uses the active pen color")}
+      {shapeBtn("circle", "◯", "Circle / oval — uses the active pen color")}
+      {(editSlot === "rect" || editSlot === "circle") && editAnchor && (
+        <ColorWidthEditor
+          name={editSlot === "rect" ? "Rectangle" : "Circle"}
+          color={ui.penColor}
+          width={ui.penWidth}
+          anchor={editAnchor}
+          onColor={(c) => ui.setPen(c, ui.penWidth)}
+          onWidth={(w) => ui.setPen(ui.penColor, w)}
+          onPrevious={() => openSnapshot && ui.setPen(openSnapshot.color, openSnapshot.width)}
+          onClose={closeEditor}
+        />
+      )}
       {toolBtn("select", "🖐", "Move text & image boxes (touch: swipe to flip pages)")}
       {toolBtn("marquee", "⬚", "Select area — drag a box (or tap an item) to move, copy, or delete")}
-      <button
-        data-action="paste-selection"
-        title="Paste the cut/copied selection onto this page (Ctrl+V)"
-        disabled={!hasSelectionClipboard()}
-        onClick={onPasteSelection}
-        className="flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100 disabled:opacity-30"
-      >
-        📋
-      </button>
+      {toolBtn("lasso", "➰", "Lasso select — draw around exactly what you want")}
       <span className="mx-1 h-6 w-px bg-slate-300" />
       <button
         data-action="undo"
@@ -240,15 +315,6 @@ export default function Toolbar({
         className="flex h-9 min-w-9 items-center justify-center rounded-md text-lg hover:bg-slate-100 disabled:opacity-30"
       >
         ↪
-      </button>
-      <span className="mx-1 h-6 w-px bg-slate-300" />
-      <button
-        data-action="add-page"
-        title="Insert a new blank page after this one"
-        onClick={onAddPage}
-        className="flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
-      >
-        ＋ Page
       </button>
       {/* zoom — app-level so the toolbar stays on screen */}
       <span className="mx-1 h-6 w-px bg-slate-300" />
@@ -280,91 +346,99 @@ export default function Toolbar({
       >
         ＋
       </button>
-      <div className="relative">
+      <div className="relative ml-auto">
         <button
-          data-action="view-menu"
-          title="Layout options"
+          data-action="export-pdf"
+          title="Download PDF — current page, a range, or the whole year"
           onClick={(e) => {
-            if (!viewMenu) setViewAnchor(anchorFor(e.currentTarget));
-            setViewMenu((v) => !v);
+            if (!exportMenu) {
+              setExportAnchor(anchorFor(e.currentTarget));
+              setRangeFrom(currentPageIndex);
+              setRangeTo(currentPageIndex);
+            }
+            setExportMenu((v) => !v);
           }}
           className="flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
         >
-          ⿹ View
+          ⬇ PDF
         </button>
-        {viewMenu && viewAnchor && (
+        {exportMenu && exportAnchor && (
           <>
-            <div className="fixed inset-0 z-30" data-view-menu-backdrop onClick={() => setViewMenu(false)} />
+            <div className="fixed inset-0 z-30" data-export-menu-backdrop onClick={() => setExportMenu(false)} />
             <div
-              data-view-menu
-              className="fixed z-40 w-52 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
-              style={{ right: viewAnchor.right, bottom: viewAnchor.bottom }}
+              data-export-menu
+              className="fixed z-40 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+              style={{ right: exportAnchor.right, bottom: exportAnchor.bottom }}
             >
-            <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Page layout</div>
-            {(
-              [
-                ["single", "Single Page (page by page)"],
-                ["continuous", "Single Page Continuous"],
-              ] as const
-            ).map(([val, label]) => (
-              <label key={val} className="flex items-center gap-2 py-0.5 text-sm">
-                <input
-                  type="radio"
-                  name="layout"
-                  data-layout-option={val}
-                  checked={viewSettings.layout === val}
-                  onChange={() => onChangeViewSettings({ ...viewSettings, layout: val })}
-                />
-                {label}
-              </label>
-            ))}
-            <div className="mb-1 mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">Page view</div>
-            {(
-              [
-                ["fit-page", "Fit to Page"],
-                ["fit-width", "Fit to Width"],
-                ["fit-height", "Fit to Height"],
-              ] as const
-            ).map(([val, label]) => (
-              <label key={val} className="flex items-center gap-2 py-0.5 text-sm">
-                <input
-                  type="radio"
-                  name="view"
-                  data-view-option={val}
-                  checked={viewSettings.view === val}
-                  onChange={() => onChangeViewSettings({ ...viewSettings, view: val, zoom: 1 })}
-                />
-                {label}
-              </label>
-            ))}
-            <div className="mt-2 text-right">
-              <button className="text-xs font-semibold text-blue-600" onClick={() => setViewMenu(false)}>
-                Done
-              </button>
-            </div>
+              <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Download PDF</div>
+              {(
+                [
+                  ["page", "Current page"],
+                  ["range", "Page range"],
+                  ["year", "Whole year (with links)"],
+                ] as const
+              ).map(([val, label]) => (
+                <label key={val} className="flex items-center gap-2 py-0.5 text-sm">
+                  <input
+                    type="radio"
+                    name="exportScope"
+                    data-export-option={val}
+                    checked={exportScope === val}
+                    onChange={() => setExportScope(val)}
+                  />
+                  {label}
+                  {val === "range" && (
+                    <span className="flex items-center gap-1 text-xs text-slate-600">
+                      <input
+                        type="number"
+                        min={1}
+                        max={pageCount}
+                        value={rangeFrom}
+                        data-export-range="from"
+                        disabled={exportScope !== "range"}
+                        onChange={(e) => setRangeFrom(Number(e.target.value))}
+                        className="w-12 rounded border border-slate-300 px-1 py-0.5 disabled:opacity-40"
+                      />
+                      –
+                      <input
+                        type="number"
+                        min={1}
+                        max={pageCount}
+                        value={rangeTo}
+                        data-export-range="to"
+                        disabled={exportScope !== "range"}
+                        onChange={(e) => setRangeTo(Number(e.target.value))}
+                        className="w-12 rounded border border-slate-300 px-1 py-0.5 disabled:opacity-40"
+                      />
+                    </span>
+                  )}
+                </label>
+              ))}
+              <div className="mt-2 text-right">
+                <button
+                  data-action="export-go"
+                  className="rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white"
+                  onClick={() => {
+                    setExportMenu(false);
+                    if (exportScope === "range") {
+                      const lo = Math.max(1, Math.min(rangeFrom, rangeTo));
+                      const hi = Math.min(pageCount, Math.max(rangeFrom, rangeTo));
+                      onExport({ scope: "range", fromIndex: lo - 1, toIndex: hi - 1 });
+                    } else {
+                      onExport({ scope: exportScope });
+                    }
+                  }}
+                >
+                  Download
+                </button>
+              </div>
             </div>
           </>
         )}
       </div>
       <button
-        data-action="export-page"
-        title="Export this page to PDF"
-        onClick={() => onExport("page")}
-        className="ml-auto flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
-      >
-        ⬇ Page PDF
-      </button>
-      <button
-        data-action="export-year"
-        title="Export the full year to a hyperlinked PDF"
-        onClick={() => onExport("year")}
-        className="flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 text-sm font-semibold hover:bg-slate-100"
-      >
-        ⬇ Year PDF
-      </button>
-      <button
         data-action="open-manage"
-        title="Habits & categories"
+        title="Settings — habits, categories, view, Google"
         onClick={onOpenManage}
         className="flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100"
       >

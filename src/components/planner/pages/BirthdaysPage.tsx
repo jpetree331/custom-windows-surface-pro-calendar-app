@@ -73,13 +73,17 @@ export default function BirthdaysPage({ page }: { page: Page }) {
                 {Array.from({ length: LINES_PER_MONTH }, (_, i) => {
                   const entry = birthdays?.get(m)?.[i];
                   return (
+                    // flex items-end: the text sits ON its ruled line (Jo),
+                    // with a hair of clearance; font bumped 1.35 → 1.6cqw
                     <div
                       key={i}
-                      className="flex-1 truncate border-b border-slate-500/80 leading-none"
-                      style={{ fontSize: "1.35cqw" }}
+                      className="flex flex-1 items-end truncate border-b border-slate-500/80 pb-[0.1cqw]"
                     >
                       {entry && (
-                        <span className="align-bottom font-medium text-slate-800">
+                        <span
+                          className="truncate font-medium text-slate-800"
+                          style={{ fontSize: "1.6cqw" }}
+                        >
                           {entry.day} · {entry.title}
                         </span>
                       )}

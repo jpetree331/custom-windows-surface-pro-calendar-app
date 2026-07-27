@@ -10,10 +10,9 @@ import {
   HIGHLIGHTER_OPACITY,
   HIGHLIGHTER_WIDTH_PT,
   PT_TO_UNITS,
-  RECT_WIDTH_PT,
 } from "@/lib/ink/tools";
 import { drawStroke, renderStrokes, strokesHitByEraser } from "@/lib/ink/render";
-import { computeAreaSelection } from "@/lib/ink/select";
+import { computeAreaSelection, computeAreaSelectionPolygon } from "@/lib/ink/select";
 import { addStroke, deleteStrokes } from "@/lib/blocks/actions";
 import { usePlannerUI } from "./ui-context";
 
@@ -74,6 +73,7 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
     let pointerId = -1;
     let downTime = 0;
     let marquee: { start: [number, number]; end: [number, number] } | null = null;
+    let lasso: [number, number][] | null = null;
 
     const toLogical = (e: PointerEvent): [number, number, number] => {
       const rect = canvas.getBoundingClientRect();
@@ -90,14 +90,37 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       return {
         id: "__live__",
         pageId,
-        tool: tool === "highlighter" ? "highlighter" : tool === "rect" ? "rect" : "pen",
+        tool:
+          tool === "highlighter" ? "highlighter"
+          : tool === "rect" ? "rect"
+          : tool === "circle" ? "circle"
+          : "pen",
         color: penColor,
-        width:
-          tool === "highlighter" ? HIGHLIGHTER_WIDTH_PT : tool === "rect" ? RECT_WIDTH_PT : penWidth,
+        // Shapes follow the active pen's width too (Jo: adjustable box lines).
+        width: tool === "highlighter" ? HIGHLIGHTER_WIDTH_PT : penWidth,
         opacity: tool === "highlighter" ? HIGHLIGHTER_OPACITY : 1,
         points,
         createdAt: Date.now(),
       };
+    };
+
+    /** Topmost block under a point — shared by every tap-select fallback. */
+    const topBlockAt = async (x: number, y: number) => {
+      const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
+      return blocks
+        .filter((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h)
+        .sort((a, b) => b.z - a.z)[0];
+    };
+
+    /** Marquee/lasso share one dashed-blue style; only the shape differs. */
+    const paintDashed = (ctx: CanvasRenderingContext2D, draw: () => void) => {
+      ctx.save();
+      ctx.setLineDash([8, 6]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#2563eb";
+      ctx.fillStyle = "rgba(59,130,246,0.08)";
+      draw();
+      ctx.restore();
     };
 
     const repaintLive = () => {
@@ -110,18 +133,25 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       if (points.length > 0) drawStroke(ctx, activeStroke());
       if (marquee) {
         const [a, b] = [marquee.start, marquee.end];
-        ctx.save();
-        ctx.setLineDash([8, 6]);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = "#2563eb";
-        ctx.fillStyle = "rgba(59,130,246,0.08)";
         const [x, y, w, h] = [
           Math.min(a[0], b[0]), Math.min(a[1], b[1]),
           Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]),
         ];
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeRect(x, y, w, h);
-        ctx.restore();
+        paintDashed(ctx, () => {
+          ctx.fillRect(x, y, w, h);
+          ctx.strokeRect(x, y, w, h);
+        });
+      }
+      if (lasso && lasso.length > 1) {
+        const path = lasso;
+        paintDashed(ctx, () => {
+          ctx.beginPath();
+          ctx.moveTo(path[0][0], path[0][1]);
+          for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        });
       }
     };
 
@@ -149,9 +179,9 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       const { tool } = uiRef.current;
       if (tool === "select" || tool === "text" || tool === "image") return;
 
-      // Touch never draws (except finger-marquee): the feed-level gesture
+      // Touch never draws (except finger-selection): the feed-level gesture
       // handler owns panning, book-swipes, and pinch zoom.
-      if (e.pointerType === "touch" && tool !== "marquee") return;
+      if (e.pointerType === "touch" && tool !== "marquee" && tool !== "lasso") return;
 
       // pen / mouse (or any pointer in marquee mode) = ink or marquee
       drawing = true;
@@ -163,11 +193,16 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       points = [];
       erased = new Map();
       marquee = null;
+      lasso = null;
       const p = toLogical(e);
       if (tool === "eraser") {
         eraseAt(p[0], p[1]);
       } else if (tool === "marquee") {
         marquee = { start: [p[0], p[1]], end: [p[0], p[1]] };
+        uiRef.current.setSelection(null);
+        repaintLive();
+      } else if (tool === "lasso") {
+        lasso = [[p[0], p[1]]];
         uiRef.current.setSelection(null);
         repaintLive();
       } else {
@@ -186,8 +221,11 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
         if (tool === "eraser") eraseAt(p[0], p[1]);
         else if (tool === "marquee") {
           if (marquee) marquee.end = [p[0], p[1]];
-        } else if (tool === "rect") points = points.length === 0 ? [p] : [points[0], p];
-        else points.push(p);
+        } else if (tool === "lasso") {
+          if (lasso) lasso.push([p[0], p[1]]);
+        } else if (tool === "rect" || tool === "circle") {
+          points = points.length === 0 ? [p] : [points[0], p];
+        } else points.push(p);
       }
       if (tool !== "eraser") repaintLive();
     };
@@ -203,17 +241,38 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       repaintLive();
       if (rect.w < 8 || rect.h < 8) {
         // A TAP with the selection tool picks the item under it (Jo).
-        const [tx, ty] = [rect.x + rect.w / 2, rect.y + rect.h / 2];
-        const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
-        const hit = blocks
-          .filter((b) => tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h)
-          .sort((a, b) => b.z - a.z)[0];
+        const hit = await topBlockAt(rect.x + rect.w / 2, rect.y + rect.h / 2);
         uiRef.current.setSelectedBlockId(hit ? hit.id : null);
         return;
       }
       // Line-aware: whole letters/lines, without grabbing neighbors whose
       // tails merely dip into the box (see strokesInRect).
       const sel = await computeAreaSelection(pageId, rect, strokesRef.current);
+      uiRef.current.setSelection(sel.strokeIds.length > 0 || sel.blockIds.length > 0 ? sel : null);
+    };
+
+    const finishLasso = async () => {
+      if (!lasso) return;
+      const poly = lasso;
+      lasso = null;
+      repaintLive();
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const [x, y] of poly) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      const rect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+      if (poly.length < 3 || rect.w < 8 || rect.h < 8) {
+        // A TAP with the lasso picks the item under it, same as the marquee.
+        const hit = await topBlockAt(poly[0][0], poly[0][1]);
+        uiRef.current.setSelectedBlockId(hit ? hit.id : null);
+        return;
+      }
+      // The selection carries the lasso's bounding box, so the overlay,
+      // move, scale and clipboard machinery all work unchanged.
+      const sel = await computeAreaSelectionPolygon(pageId, poly, rect, strokesRef.current);
       uiRef.current.setSelection(sel.strokeIds.length > 0 || sel.blockIds.length > 0 ? sel : null);
     };
 
@@ -228,6 +287,8 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
         if (dead.length > 0) await deleteStrokes(dead);
       } else if (tool === "marquee") {
         await finishMarquee();
+      } else if (tool === "lasso") {
+        await finishLasso();
       } else if (points.length > 1) {
         // A quick TAP on a block selects it to move (Jo: "click any item"),
         // instead of leaving a dot of ink on top of it.
@@ -239,11 +300,7 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
             points[points.length - 1][1] - points[0][1]
           ) < 8;
         if (isTap && (tool === "pen" || tool === "highlighter")) {
-          const [tx, ty] = points[0];
-          const blocks = await db.blocks.where("pageId").equals(pageId).toArray();
-          const hit = blocks
-            .filter((b) => tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h)
-            .sort((a, b) => b.z - a.z)[0];
+          const hit = await topBlockAt(points[0][0], points[0][1]);
           if (hit) {
             points = [];
             repaintLive();
@@ -273,6 +330,7 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       }
       points = [];
       marquee = null;
+      lasso = null;
       repaintLive();
     };
 

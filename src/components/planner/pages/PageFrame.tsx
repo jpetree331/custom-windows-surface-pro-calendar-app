@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 
 /**
@@ -22,13 +24,37 @@ export default function PageFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** TASKS / CLEANING style label — bold text on a soft gradient blob. */
+/**
+ * TASKS / CLEANING style label — bold text on a soft gradient blob. The blob
+ * always hugs the text; when a long custom page title would overflow the
+ * page, the font shrinks until the chip fits (Jo: chip resizes to the text).
+ */
 export function LabelPill({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    const fit = () => {
+      const maxW = parent.clientWidth * 0.95;
+      // measure at natural size: scrollWidth of the unscaled chip
+      const natural = el.scrollWidth / (Number(el.dataset.scale) || 1);
+      const next = natural > maxW ? Math.max(0.45, maxW / natural) : 1;
+      el.dataset.scale = String(next);
+      setScale(next);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [text]);
   return (
     <span
-      className="inline-block self-start rounded-full px-[1.2cqw] py-[0.2cqw] font-bold tracking-wide text-black"
+      ref={ref}
+      className="inline-block self-start whitespace-nowrap rounded-full px-[1.2cqw] py-[0.2cqw] font-bold tracking-wide text-black"
       style={{
-        fontSize: "1.9cqw",
+        fontSize: `calc(1.9cqw * ${scale})`,
         background:
           "radial-gradient(ellipse at 30% 50%, rgba(160,235,190,0.9), rgba(120,160,245,0.75) 75%)",
       }}

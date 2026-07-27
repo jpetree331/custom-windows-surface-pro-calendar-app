@@ -4,6 +4,7 @@ import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame, { LabelPill } from "./PageFrame";
 import EventChips from "../EventChips";
+import BirthdayReminders from "../BirthdayReminders";
 
 const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
@@ -50,12 +51,19 @@ export default function WeekPage({ page }: { page: Page }) {
                 </div>
               </div>
               <div className="relative flex-1" data-day={toISO(d)}>
+                {/* chips own the TOP of the day (Jo), full width; the wrapper
+                    spans the whole cell so dragged chips can pin anywhere */}
+                <div className="pointer-events-none absolute inset-[0.3cqw]">
+                  <EventChips dayISO={toISO(d)} />
+                </div>
+                {/* holiday + moon moved to bottom-LEFT; bottom-right belongs
+                    to the birthday lead reminders */}
                 {(() => {
                   const m = marksFor(d);
                   if (!m.holidays && !m.moon) return null;
                   return (
                     <div
-                      className="absolute right-[0.6cqw] top-[0.3cqw] flex items-center gap-[0.5cqw]"
+                      className="absolute bottom-[0.3cqw] left-[0.5cqw] flex items-center gap-[0.5cqw]"
                       style={{ fontSize: "1.5cqw" }}
                     >
                       {m.holidays && (
@@ -67,8 +75,8 @@ export default function WeekPage({ page }: { page: Page }) {
                     </div>
                   );
                 })()}
-                <div className="absolute bottom-[0.3cqw] left-[0.5cqw] right-[30%]">
-                  <EventChips dayISO={toISO(d)} />
+                <div className="absolute bottom-[0.3cqw] right-[0.5cqw] max-w-[45%]">
+                  <BirthdayReminders dayISO={toISO(d)} />
                 </div>
               </div>
             </div>

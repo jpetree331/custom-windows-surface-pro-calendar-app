@@ -257,10 +257,14 @@ function drawDayMarks(
     const size = compact ? 5 : 6.5;
     const rowH = size + 3;
     const yTop = compact ? box.y + 12 + i * rowH : box.y + box.h - (max - i) * rowH - 4;
-    const color = ctx.categoryColor.get(e.categoryId ?? "") ?? (e.kind === "birthday" ? "#f2599a" : "#3fa9f5");
+    const color =
+      ctx.categoryColor.get(e.categoryId ?? "") ??
+      (e.kind === "birthday" ? "#f2599a" : e.kind === "notice" ? "#94a3b8" : "#3fa9f5");
+    // Helvetica can't draw the 🎂/🔔 emoji — ASCII prefixes stand in.
+    const prefix = e.kind === "birthday" ? "* " : e.kind === "notice" ? "! " : "";
     const label = safe(
-      `${e.kind === "birthday" ? "* " : ""}${e.startTime ? formatTime(e.startTime) + " " : ""}${e.title}`
-    );
+      `${prefix}${e.startTime ? formatTime(e.startTime) + " " : ""}${e.title}`
+    ).replace(/\s{2,}/g, " "); // stripped emoji leave doubled spaces
     const w = Math.min(ctx.font.widthOfTextAtSize(label, size) + 4, (box.w - 8) * S);
     page.drawRectangle({
       x: px(box.x + 3),
@@ -614,16 +618,32 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
   }
 
   for (const s of ctx.strokesByPage.get(p.id) ?? []) {
-    if (s.tool === "rect") {
+    if (s.tool === "rect" || s.tool === "circle") {
       const [a, b2] = [s.points[0], s.points[s.points.length - 1]];
-      page.drawRectangle({
-        x: px(Math.min(a[0], b2[0])),
-        y: py(Math.max(a[1], b2[1])),
-        width: Math.abs(b2[0] - a[0]) * S,
-        height: Math.abs(b2[1] - a[1]) * S,
-        borderColor: hex(s.color),
-        borderWidth: s.width * PT_TO_UNITS * S,
-      });
+      const w = Math.abs(b2[0] - a[0]);
+      const h = Math.abs(b2[1] - a[1]);
+      const x0 = Math.min(a[0], b2[0]);
+      const yBottom = Math.max(a[1], b2[1]); // logical y grows downward
+      if (s.tool === "rect") {
+        page.drawRectangle({
+          x: px(x0),
+          y: py(yBottom),
+          width: w * S,
+          height: h * S,
+          borderColor: hex(s.color),
+          borderWidth: s.width * PT_TO_UNITS * S,
+        });
+      } else {
+        page.drawEllipse({
+          x: px(x0 + w / 2),
+          // PDF y of the logical vertical center (yBottom − h/2)
+          y: py(yBottom) + (h / 2) * S,
+          xScale: (w / 2) * S,
+          yScale: (h / 2) * S,
+          borderColor: hex(s.color),
+          borderWidth: s.width * PT_TO_UNITS * S,
+        });
+      }
       continue;
     }
     const d = strokeToSvgPath(s);
@@ -642,9 +662,12 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
 /* --------------------------------- export --------------------------------- */
 
 export interface ExportOptions {
-  scope: "year" | "page";
+  scope: "year" | "page" | "range";
   /** required when scope === "page" */
   pageId?: string;
+  /** required when scope === "range": 0-based inclusive page indexes */
+  fromIndex?: number;
+  toIndex?: number;
   todayISO?: string;
   /** which year's planner to export (defaults to the first one found) */
   plannerId?: string;
@@ -659,7 +682,12 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
     .where("[plannerId+index]")
     .between([planner.id, -Infinity], [planner.id, Infinity])
     .toArray();
-  const pages = opts.scope === "year" ? allPages : allPages.filter((p) => p.id === opts.pageId);
+  const pages =
+    opts.scope === "year"
+      ? allPages
+      : opts.scope === "range"
+        ? allPages.filter((p) => p.index >= (opts.fromIndex ?? 0) && p.index <= (opts.toIndex ?? Infinity))
+        : allPages.filter((p) => p.id === opts.pageId);
   if (pages.length === 0) throw new Error("Nothing to export");
 
   const [strokes, blocks, events, categories, habits, checks] = await Promise.all([

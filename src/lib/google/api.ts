@@ -17,6 +17,8 @@ export interface GEvent {
   eventType?: string;
   attendees?: { email: string }[];
   reminders?: { useDefault?: boolean; overrides?: { method: string; minutes: number }[] };
+  description?: string;
+  location?: string;
 }
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;

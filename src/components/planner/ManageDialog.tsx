@@ -10,16 +10,21 @@ import BackupPanel from "./BackupPanel";
 import { usePlannerUI } from "./ui-context";
 import { useEffect } from "react";
 import { chooseSaveFolder, clearSaveFolder, folderPickingSupported, getSaveFolderName } from "@/lib/save";
+import type { ViewSettings } from "@/lib/planner/view-settings";
 
-/** Settings dialog: manage habits (daily/weekly) and color categories. */
+/** Settings dialog: view, habits, categories, Google, backups. */
 export default function ManageDialog({
   plannerId,
   year,
   onClose,
+  viewSettings,
+  onChangeViewSettings,
 }: {
   plannerId: string;
   year: number;
   onClose: () => void;
+  viewSettings: ViewSettings;
+  onChangeViewSettings: (s: ViewSettings) => void;
 }) {
   const habits = useLiveQuery(
     () => db.habits.where("plannerId").equals(plannerId).sortBy("order"),
@@ -74,6 +79,51 @@ export default function ManageDialog({
               {label}
             </label>
           ))}
+        </div>
+
+        <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">View</h3>
+        <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1" data-view-section>
+          <div>
+            <div className="text-xs font-semibold text-slate-500">Page layout</div>
+            {(
+              [
+                ["single", "Single Page (page by page)"],
+                ["continuous", "Single Page Continuous"],
+              ] as const
+            ).map(([val, label]) => (
+              <label key={val} className="flex items-center gap-2 py-0.5 text-sm">
+                <input
+                  type="radio"
+                  name="layout"
+                  data-layout-option={val}
+                  checked={viewSettings.layout === val}
+                  onChange={() => onChangeViewSettings({ ...viewSettings, layout: val })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-slate-500">Page view</div>
+            {(
+              [
+                ["fit-page", "Fit to Page"],
+                ["fit-width", "Fit to Width"],
+                ["fit-height", "Fit to Height"],
+              ] as const
+            ).map(([val, label]) => (
+              <label key={val} className="flex items-center gap-2 py-0.5 text-sm">
+                <input
+                  type="radio"
+                  name="view"
+                  data-view-option={val}
+                  checked={viewSettings.view === val}
+                  onChange={() => onChangeViewSettings({ ...viewSettings, view: val, zoom: 1 })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
         </div>
 
         {folderPickingSupported() && (

@@ -21,6 +21,38 @@ export const RESIZE_HANDLES: ResizeHandle[] = [
   { key: "w", l: true, pos: "-left-1.5 top-1/2 -translate-y-1/2", cursor: "ew-resize" },
 ];
 
+export function isCornerHandle(edges: { l?: boolean; r?: boolean; t?: boolean; b?: boolean }): boolean {
+  return !!(edges.l || edges.r) && !!(edges.t || edges.b);
+}
+
+/**
+ * Like resizeRect, but locks the base aspect ratio (corner handles keep the
+ * scale — Jo). The dominant drag axis picks the scale factor so a diagonal
+ * drag doesn't "pop" between interpretations.
+ */
+export function resizeRectAspectLocked(
+  base: { x: number; y: number; w: number; h: number },
+  edges: { l?: boolean; r?: boolean; t?: boolean; b?: boolean },
+  dx: number,
+  dy: number,
+  minW = 12,
+  minH = 12
+): { x: number; y: number; w: number; h: number } {
+  const raw = resizeRect(base, edges, dx, dy);
+  const sx = raw.w / Math.max(1e-6, base.w);
+  const sy = raw.h / Math.max(1e-6, base.h);
+  let s = Math.abs(sx - 1) > Math.abs(sy - 1) ? sx : sy;
+  s = Math.max(s, minW / Math.max(1e-6, base.w), minH / Math.max(1e-6, base.h));
+  const w = base.w * s;
+  const h = base.h * s;
+  return {
+    x: edges.l ? base.x + base.w - w : base.x,
+    y: edges.t ? base.y + base.h - h : base.y,
+    w,
+    h,
+  };
+}
+
 /** Apply a handle-drag delta to a rect (normalizing inversions). */
 export function resizeRect(
   base: { x: number; y: number; w: number; h: number },

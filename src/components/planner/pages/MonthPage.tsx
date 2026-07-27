@@ -6,6 +6,7 @@ import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame from "./PageFrame";
 import EventChips from "../EventChips";
+import BirthdayReminders from "../BirthdayReminders";
 import { usePlannerUI } from "../ui-context";
 
 /** Month page: Mon-start grid with blue date numbers. */
@@ -76,17 +77,23 @@ export default function MonthPage({ page }: { page: Page }) {
                       </span>
                     )}
                   </div>
-                  <div className="min-h-0 flex-1 overflow-hidden pt-[0.2cqw]">
+                  {/* relative: dragged chips pin within this area */}
+                  <div className="relative min-h-0 flex-1 overflow-hidden pt-[0.2cqw]">
                     <EventChips dayISO={isoOf(day)} compact />
                   </div>
-                  {holidays.get(isoOf(day)) && (
-                    <span
-                      className="mt-auto font-semibold leading-tight"
-                      style={{ fontSize: "1.15cqw", color: "#2b6fb3" }}
-                    >
-                      {holidays.get(isoOf(day))!.join(" · ")}
-                    </span>
-                  )}
+                  <div className="mt-auto flex items-end justify-between gap-[0.3cqw]">
+                    {holidays.get(isoOf(day)) ? (
+                      <span
+                        className="font-semibold leading-tight"
+                        style={{ fontSize: "1.15cqw", color: "#2b6fb3" }}
+                      >
+                        {holidays.get(isoOf(day))!.join(" · ")}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    <BirthdayReminders dayISO={isoOf(day)} compact />
+                  </div>
                 </div>
               )}
             </div>

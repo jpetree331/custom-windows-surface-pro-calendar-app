@@ -2,9 +2,11 @@
 
 export type PageType = "year" | "month" | "week" | "section";
 export type BlockType = "text" | "image" | "task";
-export type InkTool = "pen" | "highlighter" | "rect";
+export type InkTool = "pen" | "highlighter" | "rect" | "circle";
 export type HabitCadence = "daily" | "weekly";
-export type EventKind = "event" | "birthday" | "reminder";
+/** "notice" = derived display row (Google reminder / birthday lead), wiped and
+ *  regenerated on every import — never authored by the user directly. */
+export type EventKind = "event" | "birthday" | "reminder" | "notice";
 
 export interface Planner {
   id: string;
@@ -110,6 +112,19 @@ export interface PlannerEvent {
   allDay: boolean;
   rrule?: string;
   categoryId?: string;
+  /** Google event body (shown in the details popover). */
+  description?: string;
+  location?: string;
+  /** Google reminder overrides ≥ 24h, in minutes (display-only). */
+  reminderOverridesMin?: number[];
+  /** Chip drag position, % of the day cell (undefined = normal flow). */
+  offsetX?: number;
+  offsetY?: number;
+  /** notice rows only: the event/birthday this was derived from. */
+  sourceEventId?: string;
+  noticeKind?: "event-reminder" | "birthday-lead";
+  /** notice rows only: precomputed label ("🔔 Dentist (in 3d)"). */
+  leadLabel?: string;
   updatedAt: number;
 }
 
