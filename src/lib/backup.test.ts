@@ -34,6 +34,14 @@ async function seed() {
     id: "e1", plannerId: PLANNER_ID, kind: "event", title: "Dentist",
     date: "2026-07-08", allDay: true, updatedAt: 1,
   });
+  await db.sideButtons.add({
+    id: "sb1", plannerId: PLANNER_ID, order: 0, glyph: "G",
+    label: "Gift Ideas", colorHex: "#94a3b8", target: "page:whatever",
+  });
+  await db.notes.add({
+    id: "n1", title: "Groceries", x: 0.5, y: 0.1, w: 0.3, h: 0.3, z: 100,
+    open: true, createdAt: 1, updatedAt: 1,
+  });
 }
 
 beforeEach(seed);
@@ -51,6 +59,10 @@ describe("backup round-trip", () => {
     expect(restored.strokes).toBe(1);
     expect(restored.blocks).toBe(2);
     expect(restored.habitChecks).toBe(1);
+    expect(restored.sideButtons).toBe(1);
+    expect(restored.notes).toBe(1);
+    expect((await db.sideButtons.get("sb1"))!.label).toBe("Gift Ideas");
+    expect((await db.notes.get("n1"))!.title).toBe("Groceries");
 
     const img = await db.blocks.get("b2");
     const bytes = new Uint8Array(await img!.imageBlob!.arrayBuffer());

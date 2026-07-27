@@ -33,8 +33,13 @@ export function onHistoryChange(fn: () => void): () => void {
 }
 const notify = () => listeners.forEach((fn) => fn());
 
+/** Sentinel scope for Notepad windows — note ink/text must never mix into a
+ *  planner's Ctrl+Z stack. All open notes share this one scope. */
+export const NOTES_SCOPE = "__notes__";
+
 /** Ctrl+Z must never silently edit a year the user isn't looking at. */
 export function setActivePlanner(id: string) {
+  if (id === activePlannerId) return; // focus-driven callers fire per tap
   activePlannerId = id;
   notify();
 }

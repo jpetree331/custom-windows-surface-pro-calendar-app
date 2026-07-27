@@ -11,8 +11,9 @@ import {
 } from "pdf-lib";
 import { getStroke } from "perfect-freehand";
 import { db } from "@/lib/db/db";
-import type { Block, Habit, HabitCheck, Page, PlannerEvent, Stroke } from "@/lib/db/types";
-import { PAGE_W, PAGE_H, SECTIONS, SIDE_BUTTONS, HABIT_REGION } from "@/lib/planner/constants";
+import type { Block, Habit, HabitCheck, Page, PlannerEvent, SideButton, Stroke } from "@/lib/db/types";
+import { PAGE_W, PAGE_H, SECTIONS, HABIT_REGION } from "@/lib/planner/constants";
+import { DEFAULT_SIDE_BUTTONS } from "@/lib/planner/sideButtons";
 import { MONTH_ABBR, MONTH_NAMES, DAY_ABBR, addDays, fromISO, toISO, daysInMonth, firstDowOfMonth } from "@/lib/planner/dates";
 import { currentWeekPageIndex, preferOriginalIndex } from "@/lib/planner/navigation";
 import { holidaysForYear } from "@/lib/calendar/holidays";
@@ -64,6 +65,8 @@ interface Ctx {
   categoryColor: Map<string, string>;
   habits: Habit[];
   checks: Set<string>; // habitId|date
+  /** Per-planner side buttons (falls back to the classic six). */
+  sideButtons: SideButton[];
 }
 
 /* ---------------------------------- chrome --------------------------------- */
@@ -118,11 +121,16 @@ function chromeLinks(ctx: Ctx): { draw: (page: PDFPage) => void; links: LinkSpec
   links.push({ rect: [px(12 * tabW), py(TAB_H), px(PAGE_W), py(0)], targetIndex: 0 });
 
   const BTN = 34;
-  SIDE_BUTTONS.forEach((b, i) => {
+  ctx.sideButtons.forEach((b, i) => {
     const top = TAB_H + 14 + i * (BTN + 8);
     links.push({
       rect: [px(PAGE_W - BTN - 4), py(top + BTN), px(PAGE_W - 4), py(top)],
-      targetIndex: b.target === "current-week" ? weekTarget : sectionTarget(b.target),
+      targetIndex:
+        b.target === "current-week"
+          ? weekTarget
+          : b.target.startsWith("page:")
+            ? ctx.pages.findIndex((p) => p.id === b.target.slice(5))
+            : sectionTarget(b.target),
     });
   });
 
@@ -156,23 +164,24 @@ function chromeLinks(ctx: Ctx): { draw: (page: PDFPage) => void; links: LinkSpec
       font: ctx.bold,
       color: INK_BLACK,
     });
-    // side buttons
+    // side buttons — same per-planner rows the app renders; Helvetica can't
+    // draw emoji, so those degrade to the label's first letter
     const BTN = 34;
-    const glyphs = ["*", "T", "B", "H", "N", "BD"];
-    const colors = ["#5a6cf0", "#3fa9f5", "#6dbb3c", "#f2599a", "#f28d49", "#f6d5e2"];
-    SIDE_BUTTONS.forEach((b, i) => {
+    ctx.sideButtons.forEach((b, i) => {
       const top = TAB_H + 14 + i * (BTN + 8);
       page.drawRectangle({
         x: px(PAGE_W - BTN - 4),
         y: py(top + BTN),
         width: BTN * S,
         height: BTN * S,
-        color: hex(colors[i]),
+        color: hex(b.colorHex),
         borderColor: rgb(1, 1, 1),
         borderWidth: 0.8,
         opacity: 0.95,
       });
-      const g = glyphs[i];
+      const classic: Record<string, string> = { "✱": "*", "🎂": "BD" };
+      const g =
+        safe(b.glyph) || classic[b.glyph] || safe(b.label).slice(0, 2).toUpperCase() || "•";
       const size = g.length > 1 ? 7 : 11;
       page.drawText(g, {
         x: px(PAGE_W - BTN - 4) + (BTN * S - ctx.bold.widthOfTextAtSize(g, size)) / 2,
@@ -690,7 +699,7 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
         : allPages.filter((p) => p.id === opts.pageId);
   if (pages.length === 0) throw new Error("Nothing to export");
 
-  const [strokes, blocks, events, categories, habits, checks] = await Promise.all([
+  const [strokes, blocks, events, categories, habits, checks, sideButtonRows] = await Promise.all([
     db.strokes.toArray(), // grouped by globally-unique pageId — safe unfiltered
     db.blocks.toArray(),
     // eventsByDate is keyed by date string, so events MUST be planner-scoped
@@ -699,7 +708,18 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
     db.categories.toArray(),
     db.habits.where("plannerId").equals(planner.id).sortBy("order"),
     db.habitChecks.toArray(),
+    db.sideButtons.where("plannerId").equals(planner.id).sortBy("order"),
   ]);
+  // Never lose PDF chrome on a planner that predates seeding (or a test DB).
+  const sideButtons =
+    sideButtonRows.length > 0
+      ? sideButtonRows
+      : DEFAULT_SIDE_BUTTONS.map((b, i) => ({
+          ...b,
+          id: `default-${i}`,
+          plannerId: planner.id,
+          order: i,
+        }));
 
   const doc = await PDFDocument.create();
   doc.setTitle(`${planner.title} — Jo's Planner`);
@@ -742,6 +762,7 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
     checks: new Set(
       (checks as HabitCheck[]).filter((c) => c.checked).map((c) => `${c.habitId}|${c.date}`)
     ),
+    sideButtons,
   };
 
   // pass 1: create pages so links can reference any target

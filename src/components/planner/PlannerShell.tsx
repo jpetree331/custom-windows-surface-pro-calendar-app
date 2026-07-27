@@ -33,6 +33,8 @@ import { PLANNER_SLUG } from "@/lib/branding";
 import { saveFile } from "@/lib/save";
 import { maybeAutoSync } from "@/lib/google/autosync";
 import { ensureStarterCategories } from "@/lib/categories/actions";
+import { addSideButton, ensureSideButtonsSeeded } from "@/lib/planner/sideButtons";
+import NotepadManager from "./notepad/NotepadManager";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
 import SideButtons from "./SideButtons";
@@ -69,6 +71,8 @@ export default function PlannerShell() {
   const [showAddPage, setShowAddPage] = useState(false);
   const [addPageAnchor, setAddPageAnchor] = useState<string | null>(null);
   const [newPageName, setNewPageName] = useState("");
+  const [addPageSideBtn, setAddPageSideBtn] = useState(false);
+  const [notepadOpen, setNotepadOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ pageId: string; label: string } | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const imageFileRef = useRef<HTMLInputElement>(null);
@@ -111,6 +115,7 @@ export default function PlannerShell() {
     const req = ++loadYearSeq.current;
     const p = await ensurePlannerSeeded(year);
     await ensureStarterCategories(p.id);
+    await ensureSideButtonsSeeded(p.id);
     const years = (await db.planners.toArray()).map((pl) => pl.year).sort();
     // A newer loadYear superseded this one mid-flight — drop the stale result.
     if (req !== loadYearSeq.current) return;
@@ -233,7 +238,7 @@ export default function PlannerShell() {
     } | null = null;
     // Elements that own their own touch interactions — never start a pan there.
     const INTERACTIVE =
-      "[data-block-id],[data-selection-box],button,input,select,textarea,a,[contenteditable='true']";
+      "[data-block-id],[data-selection-box],[data-notepad-window],button,input,select,textarea,a,[contenteditable='true']";
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
@@ -393,6 +398,12 @@ export default function PlannerShell() {
         jumpToIndex(currentWeekIndex());
         return;
       }
+      // "page:<id>" = a custom titled page; a deleted target is a quiet no-op
+      if (target.startsWith("page:")) {
+        const i = pagesRef.current.findIndex((p) => p.id === target.slice(5));
+        if (i >= 0) jumpToIndex(i);
+        return;
+      }
       const i = preferOriginalIndex(
         pagesRef.current,
         (p) => p.type === "section" && p.meta.sectionKey === target
@@ -543,12 +554,13 @@ export default function PlannerShell() {
   const onAddPage = useCallback(
     async (label: string, anchorId?: string | null) => {
       const anchor = anchorId ?? viewportCenterPageId();
-      if (!anchor) return;
+      if (!anchor) return null;
       const page = await addBlankPage(anchor, label);
       if (page) {
         // liveQuery refresh lands within a tick; then scroll to the new page
         setTimeout(() => jumpToIndex(page.index), 200);
       }
+      return page;
     },
     [viewportCenterPageId, jumpToIndex]
   );
@@ -597,8 +609,18 @@ export default function PlannerShell() {
           onSwitchYear={(y) => void loadYear(y)}
           onCreateYear={(y) => void loadYear(y)}
         />
-        <div ref={setFeedEl} className="relative min-h-0 flex-1 bg-slate-400/60">
-          <SideButtons onJump={jumpToTarget} />
+        <div
+          ref={setFeedEl}
+          className="relative min-h-0 flex-1 bg-slate-400/60"
+          // clicking back into the planner restores its Ctrl+Z scope after
+          // working in a Notepad window (which switches to NOTES_SCOPE)
+          onPointerDownCapture={() => history.setActivePlanner(planner.id)}
+        >
+          <SideButtons
+            plannerId={planner.id}
+            onJump={jumpToTarget}
+            onOpenNotepad={() => setNotepadOpen(true)}
+          />
           {viewSettings.layout === "single" ? (
             <SinglePageFeed
               pages={pages}
@@ -693,6 +715,9 @@ export default function PlannerShell() {
             />
           )}
         </div>
+        {/* floating Notepad windows — siblings of the feed, so its pan/pinch
+            listeners never see their events */}
+        <NotepadManager listOpen={notepadOpen} onListOpenChange={setNotepadOpen} />
         <Toolbar
           onOpenManage={() => setShowManage(true)}
           onExport={(req) => void onExport(req)}
@@ -907,9 +932,19 @@ export default function PlannerShell() {
               onSubmit={(e) => {
                 e.preventDefault();
                 setShowAddPage(false);
-                void onAddPage(newPageName, addPageAnchor);
+                const wantButton = addPageSideBtn;
+                void onAddPage(newPageName, addPageAnchor).then((page) => {
+                  if (page && wantButton) {
+                    void addSideButton(page.plannerId, {
+                      glyph: page.label.slice(0, 2),
+                      label: page.label,
+                      target: `page:${page.id}`,
+                    });
+                  }
+                });
                 setAddPageAnchor(null);
                 setNewPageName("");
+                setAddPageSideBtn(false);
               }}
             >
               <h2 className="mb-2 text-base font-bold text-slate-800">New page</h2>
@@ -921,6 +956,15 @@ export default function PlannerShell() {
                 data-input="new-page-name"
                 className="mb-3 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
               />
+              <label className="mb-3 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  data-input="add-side-button"
+                  checked={addPageSideBtn}
+                  onChange={(e) => setAddPageSideBtn(e.target.checked)}
+                />
+                Add a side button that jumps to this page
+              </label>
               <div className="flex justify-end gap-2">
                 <button
                   type="button"

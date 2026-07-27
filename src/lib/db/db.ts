@@ -8,6 +8,8 @@ import type {
   HabitCheck,
   Category,
   PlannerEvent,
+  SideButton,
+  Note,
   SyncQueueItem,
 } from "./types";
 
@@ -21,6 +23,10 @@ export class JotterDB extends Dexie {
   habitChecks!: EntityTable<HabitCheck, "id">;
   categories!: EntityTable<Category, "id">;
   events!: EntityTable<PlannerEvent, "id">;
+  sideButtons!: EntityTable<SideButton, "id">;
+  /** Notes are app-global (not planner-scoped); their ink/text lives in
+   *  strokes/blocks keyed by pageId = note.id. */
+  notes!: EntityTable<Note, "id">;
   syncQueue!: EntityTable<SyncQueueItem, "seq">;
   /** Device-local key/value store (e.g. the chosen save-folder handle).
    *  Deliberately NOT part of backups — it's per-device state. */
@@ -47,6 +53,11 @@ export class JotterDB extends Dexie {
     // Purely additive — rows and other tables untouched.
     this.version(3).stores({
       events: "id, plannerId, date, googleId, sourceEventId, [plannerId+date]",
+    });
+    // v4: additive tables for editable side buttons + Notepad notes.
+    this.version(4).stores({
+      sideButtons: "id, plannerId",
+      notes: "id, updatedAt",
     });
   }
 }

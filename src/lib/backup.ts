@@ -39,7 +39,7 @@ type SerializedBlock = Omit<Block, "imageBlob"> & {
 };
 
 export async function createBackup(): Promise<Blob> {
-  const [planners, pages, strokes, blocks, habits, habitChecks, categories, events] =
+  const [planners, pages, strokes, blocks, habits, habitChecks, categories, events, sideButtons, notes] =
     await Promise.all([
       db.planners.toArray(),
       db.pages.toArray(),
@@ -49,6 +49,8 @@ export async function createBackup(): Promise<Blob> {
       db.habitChecks.toArray(),
       db.categories.toArray(),
       db.events.toArray(),
+      db.sideButtons.toArray(),
+      db.notes.toArray(),
     ]);
 
   const serializedBlocks: SerializedBlock[] = await Promise.all(
@@ -71,6 +73,8 @@ export async function createBackup(): Promise<Blob> {
       planners, pages, strokes,
       blocks: serializedBlocks,
       habits, habitChecks, categories, events,
+      // note ink/text rides along in strokes/blocks (pageId = note id)
+      sideButtons, notes,
     },
   };
   return new Blob([JSON.stringify(payload)], { type: "application/json" });
@@ -99,7 +103,7 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
   const restored: Record<string, number> = {};
   await db.transaction(
     "rw",
-    [db.planners, db.pages, db.strokes, db.blocks, db.habits, db.habitChecks, db.categories, db.events],
+    [db.planners, db.pages, db.strokes, db.blocks, db.habits, db.habitChecks, db.categories, db.events, db.sideButtons, db.notes],
     async () => {
       const put = async (name: string, table: { bulkPut(rows: never[]): Promise<unknown> }, rows: unknown[]) => {
         await table.bulkPut(rows as never[]);
@@ -113,6 +117,9 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
       await put("habitChecks", db.habitChecks, data.tables.habitChecks ?? []);
       await put("categories", db.categories, data.tables.categories ?? []);
       await put("events", db.events, data.tables.events ?? []);
+      // absent in pre-round-9 backups — degrades to a no-op
+      await put("sideButtons", db.sideButtons, data.tables.sideButtons ?? []);
+      await put("notes", db.notes, data.tables.notes ?? []);
     }
   );
   return { restored };

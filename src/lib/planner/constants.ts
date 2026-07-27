@@ -22,20 +22,5 @@ export const SECTIONS: { key: string; label: string; count: number }[] = [
   { key: "notes", label: "NOTES", count: 3 },
 ];
 
-/** Side buttons (Gate C legend, confirmed against buttons.png). */
-export const SIDE_BUTTONS: {
-  key: string;
-  glyph: string;
-  title: string;
-  /** section key to jump to, or "current-week". */
-  target: string;
-  /** button face gradient. */
-  bg: string;
-}[] = [
-  { key: "week", glyph: "✱", title: "Current Week", target: "current-week", bg: "linear-gradient(135deg,#7f9df7,#5a6cf0)" },
-  { key: "todo", glyph: "T", title: "To Do", target: "todo", bg: "linear-gradient(135deg,#5bc8f5,#3fa9f5)" },
-  { key: "business", glyph: "B", title: "Business", target: "business", bg: "linear-gradient(135deg,#9fdc5a,#6dbb3c)" },
-  { key: "habits", glyph: "H", title: "Habits", target: "habits", bg: "linear-gradient(135deg,#f78fb8,#f2599a)" },
-  { key: "notes", glyph: "N", title: "Notes", target: "notes", bg: "linear-gradient(135deg,#f7b980,#f28d49)" },
-  { key: "birthdays", glyph: "🎂", title: "Birthdays", target: "birthdays", bg: "linear-gradient(135deg,#fbe6ef,#f6d5e2)" },
-];
+// Side buttons became per-planner Dexie rows (editable in Settings) — the
+// factory defaults live in src/lib/planner/sideButtons.ts.

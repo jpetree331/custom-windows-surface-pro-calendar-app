@@ -128,6 +128,36 @@ export interface PlannerEvent {
   updatedAt: number;
 }
 
+/** User-editable right-edge jump button (seeded from the classic six). */
+export interface SideButton {
+  id: string;
+  plannerId: string;
+  order: number;
+  /** 1–2 characters (emoji fall back to a letter in PDF exports). */
+  glyph: string;
+  label: string;
+  /** Solid color — drives both the CSS gradient and pdf-lib's rgb(). */
+  colorHex: string;
+  /** "current-week" | a SECTIONS key | "page:<pageId>" (custom titled page). */
+  target: string;
+}
+
+/** A floating Notepad note — app-global, shared across planner years. */
+export interface Note {
+  id: string;
+  /** Typed title; "" auto-derives from the note's first text block. */
+  title: string;
+  /** Window rect as FRACTIONS of the viewport (resize-robust). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+  open: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SyncQueueItem {
   seq?: number;
   table: string;
