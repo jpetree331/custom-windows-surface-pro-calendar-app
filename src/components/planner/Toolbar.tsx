@@ -109,6 +109,7 @@ export default function Toolbar({
   onChangeViewSettings,
   pageCount,
   currentPageIndex,
+  onFlip,
 }: {
   onOpenManage: () => void;
   onExport: (req: ExportRequest) => void;
@@ -116,6 +117,7 @@ export default function Toolbar({
   onChangeViewSettings: (s: ViewSettings) => void;
   pageCount: number;
   currentPageIndex: number;
+  onFlip: (dir: 1 | -1) => void;
 }) {
   const ui = usePlannerUI();
   const [, force] = useState(0);
@@ -315,6 +317,29 @@ export default function Toolbar({
         className="flex h-9 min-w-9 items-center justify-center rounded-md text-lg hover:bg-slate-100 disabled:opacity-30"
       >
         ↪
+      </button>
+      {/* page flip + counter — lived over the page bottom, now here (Jo) */}
+      <span className="mx-1 h-6 w-px bg-slate-300" />
+      <button
+        data-flip="prev"
+        title="Previous page (PageUp)"
+        disabled={currentPageIndex <= 1}
+        onClick={() => onFlip(-1)}
+        className="flex h-9 min-w-8 items-center justify-center rounded-md text-lg font-bold hover:bg-slate-100 disabled:opacity-30"
+      >
+        ‹
+      </button>
+      <span data-page-counter className="whitespace-nowrap text-xs font-semibold text-slate-600">
+        {currentPageIndex} / {pageCount}
+      </span>
+      <button
+        data-flip="next"
+        title="Next page (PageDown)"
+        disabled={currentPageIndex >= pageCount}
+        onClick={() => onFlip(1)}
+        className="flex h-9 min-w-8 items-center justify-center rounded-md text-lg font-bold hover:bg-slate-100 disabled:opacity-30"
+      >
+        ›
       </button>
       {/* zoom — app-level so the toolbar stays on screen */}
       <span className="mx-1 h-6 w-px bg-slate-300" />

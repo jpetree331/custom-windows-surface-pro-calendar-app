@@ -237,7 +237,10 @@ function drawDayMarks(
   page: PDFPage,
   iso: string,
   box: { x: number; y: number; w: number; h: number }, // logical, y = top
-  compact: boolean
+  compact: boolean,
+  // week cells exclude 🔔/🎂 notices — they print under REMINDERS instead,
+  // matching the round-10 screen layout (month cells keep them inline)
+  includeNotices = true
 ) {
   const year = Number(iso.slice(0, 4));
   const holidays = holidaysForYear(year).get(iso);
@@ -260,7 +263,9 @@ function drawDayMarks(
       color: LABEL_BLUE,
     });
   }
-  const events = ctx.eventsByDate.get(iso) ?? [];
+  const events = (ctx.eventsByDate.get(iso) ?? []).filter(
+    (e) => includeNotices || e.kind !== "notice"
+  );
   const max = compact ? 3 : 5;
   events.slice(0, max).forEach((e, i) => {
     const size = compact ? 5 : 6.5;
@@ -331,7 +336,7 @@ function drawWeek(ctx: Ctx, page: PDFPage, p: Page) {
         size: 11, font: ctx.bold, color: INK_BLACK,
       });
     });
-    drawDayMarks(ctx, page, toISO(d), { x: left + colW, y: rowTop, w: splitX - left - colW, h: rowH }, false);
+    drawDayMarks(ctx, page, toISO(d), { x: left + colW, y: rowTop, w: splitX - left - colW, h: rowH }, false, false);
   }
 
   // right column: TASKS / REMINDERS
@@ -344,6 +349,28 @@ function drawWeek(ctx: Ctx, page: PDFPage, p: Page) {
   };
   pill("TASKS", splitX + 8, top + 4);
   pill("REMINDERS", splitX + 8, cleanY + 4);
+
+  // the week's 🔔/🎂 notices under the REMINDERS pill (screen parity)
+  const weekNotices: PlannerEvent[] = [];
+  for (let i = 0; i < 7; i++) {
+    for (const e of ctx.eventsByDate.get(toISO(addDays(monday, i))) ?? []) {
+      if (e.kind === "notice") weekNotices.push(e);
+    }
+  }
+  weekNotices
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 8)
+    .forEach((n, i) => {
+      const prefix = n.noticeKind === "birthday-lead" ? "* " : "! ";
+      const label = safe(`${prefix}${n.leadLabel ?? n.title}`).replace(/\s{2,}/g, " ");
+      page.drawText(label, {
+        x: px(splitX + 8),
+        y: py(cleanY + 40 + i * 12),
+        size: 6.5,
+        font: ctx.font,
+        color: n.noticeKind === "birthday-lead" ? hex("#be5a83") : hex("#475569"),
+      });
+    });
 
   // habits grid with real data
   const gx = (HABIT_REGION.left / 100) * PAGE_W;

@@ -72,7 +72,8 @@ export default function PlannerShell() {
   const [addPageAnchor, setAddPageAnchor] = useState<string | null>(null);
   const [newPageName, setNewPageName] = useState("");
   const [addPageSideBtn, setAddPageSideBtn] = useState(false);
-  const [notepadOpen, setNotepadOpen] = useState(false);
+  const [manageFocus, setManageFocus] = useState<"side-buttons" | null>(null);
+  const [notepadMenu, setNotepadMenu] = useState<{ top: number; right: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ pageId: string; label: string } | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const imageFileRef = useRef<HTMLInputElement>(null);
@@ -619,7 +620,11 @@ export default function PlannerShell() {
           <SideButtons
             plannerId={planner.id}
             onJump={jumpToTarget}
-            onOpenNotepad={() => setNotepadOpen(true)}
+            onOpenNotepad={(anchor) => setNotepadMenu(anchor)}
+            onOpenSettings={() => {
+              setManageFocus("side-buttons");
+              setShowManage(true);
+            }}
           />
           {viewSettings.layout === "single" ? (
             <SinglePageFeed
@@ -717,7 +722,7 @@ export default function PlannerShell() {
         </div>
         {/* floating Notepad windows — siblings of the feed, so its pan/pinch
             listeners never see their events */}
-        <NotepadManager listOpen={notepadOpen} onListOpenChange={setNotepadOpen} />
+        <NotepadManager menuAnchor={notepadMenu} onMenuClose={() => setNotepadMenu(null)} />
         <Toolbar
           onOpenManage={() => setShowManage(true)}
           onExport={(req) => void onExport(req)}
@@ -729,6 +734,7 @@ export default function PlannerShell() {
               ? Math.min(singleIndex + 1, pages.length)
               : Math.max(1, pages.findIndex((p) => p.id === currentPageId) + 1)
           }
+          onFlip={flipPage}
         />
         {ctxMenu && (
           <div className="fixed inset-0 z-50" data-page-context-menu onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}>
@@ -862,9 +868,13 @@ export default function PlannerShell() {
           <ManageDialog
             plannerId={planner.id}
             year={planner.year}
-            onClose={() => setShowManage(false)}
+            onClose={() => {
+              setShowManage(false);
+              setManageFocus(null);
+            }}
             viewSettings={viewSettings}
             onChangeViewSettings={changeViewSettings}
+            focusSection={manageFocus}
           />
         )}
         {/* hidden input for the right-click "Insert image…" item */}

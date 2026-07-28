@@ -58,9 +58,13 @@ export async function getGoogleCalendarIds(plannerId: string): Promise<string[] 
  * every import — idempotent, self-healing if the calendar sneaks back in.
  */
 export async function purgeMoonPhaseDuplicates(plannerId: string): Promise<number> {
+  // Case-insensitive: Google's calendar titles these "Full moon" / "New moon"
+  // (lowercase m) — an exact match against MOON_NAMES never fired (Jo round
+  // 10: "unsubscribed but the items didn't go away").
+  const moonTitles = new Set((MOON_NAMES as readonly string[]).map((n) => n.toLowerCase()));
   const stale = await db.events
     .where("plannerId").equals(plannerId)
-    .and((e) => !!e.googleId && (MOON_NAMES as readonly string[]).includes(e.title))
+    .and((e) => !!e.googleId && moonTitles.has(e.title.trim().toLowerCase()))
     .toArray();
   if (stale.length) {
     await db.events.bulkDelete(stale.map((e) => e.id));

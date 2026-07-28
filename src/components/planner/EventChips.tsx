@@ -18,9 +18,12 @@ import { clampChipOffset } from "@/lib/events/layout";
 export default function EventChips({
   dayISO,
   compact = false,
+  includeNotices = true,
 }: {
   dayISO: string;
   compact?: boolean;
+  /** Week pages render 🔔 chips in the REMINDERS panel instead (Jo r10). */
+  includeNotices?: boolean;
 }) {
   const { plannerId, timeFormat, tool } = usePlannerUI();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -31,9 +34,15 @@ export default function EventChips({
       db.events
         .where("date")
         .equals(dayISO)
-        .and((e) => e.plannerId === plannerId && !(e.kind === "notice" && e.noticeKind === "birthday-lead"))
+        .and(
+          (e) =>
+            e.plannerId === plannerId &&
+            (includeNotices
+              ? !(e.kind === "notice" && e.noticeKind === "birthday-lead")
+              : e.kind !== "notice")
+        )
         .toArray(),
-    [dayISO, plannerId]
+    [dayISO, plannerId, includeNotices]
   );
   const categories = useLiveQuery(() => db.categories.toArray(), []) ?? [];
   // Tap a chip to reveal a long title; tap again to collapse.

@@ -103,8 +103,9 @@ describe("moon-phase cleanup + calendar checklist", () => {
         title: "Full Moon", date: "2026-07-10", allDay: true, updatedAt: 1,
       },
       {
+        // Google's actual casing — "New moon", not "New Moon" (Jo round 10)
         id: "m2", plannerId: PLANNER_ID, googleId: "g_m2", kind: "event",
-        title: "New Moon", date: "2026-07-24", allDay: true, updatedAt: 1,
+        title: "New moon", date: "2026-07-24", allDay: true, updatedAt: 1,
       },
       {
         // Jo's own event that happens to mention the moon — NOT purged

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Page } from "@/lib/db/types";
-import { DAY_ABBR, daysInMonth, firstDowOfMonth } from "@/lib/planner/dates";
+import { DAY_ABBR, daysInMonth, firstDowOfMonth, toISO } from "@/lib/planner/dates";
 import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame from "./PageFrame";
@@ -55,6 +55,12 @@ export default function MonthPage({ page }: { page: Page }) {
               key={i}
               className="min-w-0 overflow-hidden border-r-[0.14cqw] border-b-[0.14cqw] border-black p-[0.4cqw] [&:nth-child(7n)]:border-r-0"
               data-date={day ? `${year}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` : undefined}
+              // bold inset outline makes TODAY jump out (Jo)
+              style={
+                day && isoOf(day) === toISO(new Date())
+                  ? { boxShadow: "inset 0 0 0 0.3cqw #1d4ed8" }
+                  : undefined
+              }
             >
               {day && (
                 <div className="flex h-full flex-col">

@@ -43,7 +43,10 @@ export function makeTextBlock(
   y: number,
   content = "",
   type: "text" | "task" = "text",
-  color?: string
+  color?: string,
+  // Jo's defaults: 12pt on calendar pages, 18pt in notes (callers override).
+  // Pre-existing blocks keep rendering at the legacy 8pt fallback.
+  fontSize = 12
 ): Block {
   const now = Date.now();
   return {
@@ -57,6 +60,7 @@ export function makeTextBlock(
     z: now % 100000,
     content,
     color,
+    fontSize,
     checked: type === "task" ? false : undefined,
     createdAt: now,
     updatedAt: now,

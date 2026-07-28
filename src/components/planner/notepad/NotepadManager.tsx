@@ -4,23 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/db";
 import { createNote, deleteNote, noteDisplayTitle, updateNote } from "@/lib/notes/actions";
-import FloatingWindow, { type WinRect } from "./FloatingWindow";
 import NoteWindow from "./NoteWindow";
 
-const LIST_RECT_KEY = "notepad.listWindow";
-const DEFAULT_LIST_RECT: WinRect = { x: 0.62, y: 0.1, w: 0.26, h: 0.34 };
-
 /**
- * Owns every floating Notepad window: the Notes List plus each open note.
- * Notes are app-global (shared across planner years) and reopen where they
- * were. The list window's rect lives in device-local kv (chrome, not data).
+ * Owns the Notepad: a hover/tap menu anchored at the 🗒 side button (Jo:
+ * "like a right-click menu", replacing the old floating Notes List window)
+ * plus every open note's floating window. Notes are app-global.
  */
 export default function NotepadManager({
-  listOpen,
-  onListOpenChange,
+  menuAnchor,
+  onMenuClose,
 }: {
-  listOpen: boolean;
-  onListOpenChange: (open: boolean) => void;
+  menuAnchor: { top: number; right: number } | null;
+  onMenuClose: () => void;
 }) {
   const notes = useLiveQuery(() => db.notes.toArray(), []) ?? [];
   const openNotes = notes.filter((n) => n.open);
@@ -39,54 +35,54 @@ export default function NotepadManager({
   }
   const titleOf = (noteId: string) => {
     const i = byRecent.findIndex((n) => n.id === noteId);
-    return noteDisplayTitle(byRecent[i], firstText.get(noteId), i);
+    return i >= 0 ? noteDisplayTitle(byRecent[i], firstText.get(noteId), i) : "Note";
   };
 
-  // z-order: one incrementing counter across all windows
+  // z-order: one incrementing counter across all note windows
   const zRef = useRef(100);
   useEffect(() => {
     const maxZ = Math.max(100, ...notes.map((n) => n.z));
     if (maxZ >= zRef.current) zRef.current = maxZ + 1;
   }, [notes]);
-  const [listZ, setListZ] = useState(101);
   const raiseNote = (id: string, z: number) => {
-    if (z >= zRef.current - 1 && z >= listZ) return; // already on top
+    if (z >= zRef.current) return; // already on top
     void updateNote(id, { z: ++zRef.current });
-  };
-
-  // list window rect persists per device in kv
-  const [listRect, setListRect] = useState<WinRect>(DEFAULT_LIST_RECT);
-  useEffect(() => {
-    void db.kv.get(LIST_RECT_KEY).then((row) => {
-      if (row?.value) setListRect(row.value as WinRect);
-    });
-  }, []);
-  const commitListRect = (r: WinRect) => {
-    setListRect(r);
-    void db.kv.put({ key: LIST_RECT_KEY, value: r });
   };
 
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   return (
     <>
-      {listOpen && (
-        <FloatingWindow
-          name="notes-list"
-          rect={listRect}
-          z={listZ}
-          onFocus={() => {
-            if (listZ < zRef.current) setListZ(++zRef.current);
-          }}
-          onClose={() => onListOpenChange(false)}
-          onCommitRect={commitListRect}
-          title={<span className="text-sm font-bold text-slate-700">🗒 Notes</span>}
-        >
-          <div className="h-full overflow-y-auto p-1.5">
+      {menuAnchor && (
+        <>
+          <div
+            className="fixed inset-0 z-[1400]"
+            data-notepad-menu-backdrop
+            onClick={onMenuClose}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onMenuClose();
+            }}
+          />
+          <div
+            data-notepad-menu
+            className="fixed z-[1410] max-h-[60vh] w-60 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+            style={{ top: Math.min(menuAnchor.top, window.innerHeight - 300), right: menuAnchor.right }}
+            // the menu itself keeps hover-open alive; leaving it closes
+            onPointerLeave={(e) => {
+              if (e.pointerType !== "touch") onMenuClose();
+            }}
+          >
+            <div className="px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-400">
+              🗒 Notes
+            </div>
             <button
               data-notepad-action="new-note"
-              onClick={() => void createNote(++zRef.current)}
-              className="mb-1 w-full rounded bg-blue-600 px-2 py-1.5 text-left text-sm font-semibold text-white"
+              onClick={() => {
+                void createNote(++zRef.current);
+                onMenuClose();
+              }}
+              className="block w-full px-3 py-1.5 text-left text-sm font-semibold text-blue-700 hover:bg-blue-50"
             >
               ＋ New Note
             </button>
@@ -94,14 +90,15 @@ export default function NotepadManager({
               <div
                 key={n.id}
                 data-note-row={n.id}
-                className="flex items-center gap-1 rounded px-1 py-1 hover:bg-slate-100"
+                className="flex items-center gap-1 px-1.5 py-0.5 hover:bg-slate-100"
               >
                 <button
                   data-note-action="open"
-                  className="min-w-0 flex-1 truncate text-left text-sm text-slate-800"
+                  className="min-w-0 flex-1 truncate px-1.5 py-1 text-left text-sm text-slate-800"
                   title="Open this note"
                   onClick={() => {
                     void updateNote(n.id, { open: true, z: ++zRef.current });
+                    onMenuClose();
                   }}
                 >
                   {titleOf(n.id)}
@@ -139,12 +136,12 @@ export default function NotepadManager({
               </div>
             ))}
             {notes.length === 0 && (
-              <p className="px-1 py-2 text-xs text-slate-500">
+              <p className="px-3 py-1.5 text-xs text-slate-500">
                 No notes yet — tap ＋ New Note, then type or write with the pen.
               </p>
             )}
           </div>
-        </FloatingWindow>
+        </>
       )}
       {openNotes.map((n) => (
         <NoteWindow

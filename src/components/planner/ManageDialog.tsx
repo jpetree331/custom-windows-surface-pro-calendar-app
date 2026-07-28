@@ -20,6 +20,35 @@ import { useEffect } from "react";
 import { chooseSaveFolder, clearSaveFolder, folderPickingSupported, getSaveFolderName } from "@/lib/save";
 import type { ViewSettings } from "@/lib/planner/view-settings";
 
+/** Collapsible section (Jo: accordions for the long lists). */
+function Accordion({
+  title,
+  name,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  name: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="mb-3" data-accordion={name} data-open={open || undefined}>
+      <button
+        type="button"
+        data-accordion-toggle={name}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between rounded px-1 py-1 text-sm font-bold uppercase tracking-wide text-slate-500 hover:bg-slate-100"
+      >
+        {title}
+        <span className="text-base leading-none text-slate-400">{open ? "︿" : "﹀"}</span>
+      </button>
+      {open && <div className="mt-1">{children}</div>}
+    </div>
+  );
+}
+
 /** Settings dialog: view, habits, categories, Google, backups. */
 export default function ManageDialog({
   plannerId,
@@ -27,12 +56,15 @@ export default function ManageDialog({
   onClose,
   viewSettings,
   onChangeViewSettings,
+  focusSection = null,
 }: {
   plannerId: string;
   year: number;
   onClose: () => void;
   viewSettings: ViewSettings;
   onChangeViewSettings: (s: ViewSettings) => void;
+  /** Open with this accordion expanded + scrolled into view. */
+  focusSection?: "side-buttons" | null;
 }) {
   const habits = useLiveQuery(
     () => db.habits.where("plannerId").equals(plannerId).sortBy("order"),
@@ -64,6 +96,13 @@ export default function ManageDialog({
   useEffect(() => {
     void getSaveFolderName().then(setSaveFolder);
   }, []);
+  // right-clicking the side menu lands here — bring its section into view
+  useEffect(() => {
+    if (!focusSection) return;
+    document
+      .querySelector(`[data-accordion="${focusSection}"]`)
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [focusSection]);
 
   return (
     <div
@@ -181,7 +220,7 @@ export default function ManageDialog({
           </>
         )}
 
-        <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Habits</h3>
+        <Accordion title="Habits" name="habits">
         <div className="mb-2 space-y-1">
           {(habits ?? []).map((h) => (
             <div key={h.id} className="flex items-center gap-2" data-manage-habit={h.name}>
@@ -229,8 +268,9 @@ export default function ManageDialog({
             Add
           </button>
         </form>
+        </Accordion>
 
-        <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Categories</h3>
+        <Accordion title="Categories" name="categories">
         <div className="mb-2 space-y-1">
           {(categories ?? []).map((c) => (
             <div key={c.id} className="flex items-center gap-2" data-manage-category={c.name}>
@@ -283,10 +323,9 @@ export default function ManageDialog({
             Add
           </button>
         </form>
+        </Accordion>
 
-        <h3 className="mb-1 mt-4 text-sm font-bold uppercase tracking-wide text-slate-500">
-          Side buttons
-        </h3>
+        <Accordion title="Side buttons" name="side-buttons" defaultOpen={focusSection === "side-buttons"}>
         <p className="mb-1 text-xs text-slate-500">
           The jump buttons on the right edge — reorder, recolor, change the letter, or point
           one at any page you&apos;ve added. (Emoji print as a letter in PDFs.)
@@ -377,10 +416,11 @@ export default function ManageDialog({
         <button
           data-side-action="add"
           onClick={() => void addSideButton(plannerId)}
-          className="mb-3 rounded bg-slate-700 px-3 py-1 text-sm font-semibold text-white"
+          className="mb-1 rounded bg-slate-700 px-3 py-1 text-sm font-semibold text-white"
         >
           ＋ Add side button
         </button>
+        </Accordion>
 
         <GooglePanel plannerId={plannerId} year={year} />
         <BackupPanel />

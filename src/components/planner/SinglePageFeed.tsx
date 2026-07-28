@@ -140,30 +140,8 @@ export default function SinglePageFeed({
         </div>
       </div>
 
-      {/* page-flip arrows + position */}
-      <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 print:hidden">
-        <button
-          data-flip="prev"
-          disabled={clampedIndex === 0}
-          onClick={() => flip(-1)}
-          className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-slate-800/80 text-lg font-bold text-white shadow disabled:opacity-30"
-          title="Previous page (PageUp)"
-        >
-          ‹
-        </button>
-        <span className="pointer-events-auto rounded-full bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-white shadow">
-          {clampedIndex + 1} / {pages.length}
-        </span>
-        <button
-          data-flip="next"
-          disabled={clampedIndex === pages.length - 1}
-          onClick={() => flip(1)}
-          className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-slate-800/80 text-lg font-bold text-white shadow disabled:opacity-30"
-          title="Next page (PageDown)"
-        >
-          ›
-        </button>
-      </div>
+      {/* page arrows + counter moved to the Toolbar (Jo r10: the floating
+          pill blocked the bottom of the page) */}
     </div>
   );
 }

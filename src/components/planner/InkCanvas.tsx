@@ -248,6 +248,17 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       // Line-aware: whole letters/lines, without grabbing neighbors whose
       // tails merely dip into the box (see strokesInRect).
       const sel = await computeAreaSelection(pageId, rect, strokesRef.current);
+      applySelection(sel);
+    };
+
+    /** A box around exactly ONE item (no ink) becomes a normal item
+     *  selection — full text menu, same as tapping it (Jo). */
+    const applySelection = (sel: Awaited<ReturnType<typeof computeAreaSelection>>) => {
+      if (sel.blockIds.length === 1 && sel.strokeIds.length === 0) {
+        uiRef.current.setSelection(null);
+        uiRef.current.setSelectedBlockId(sel.blockIds[0]);
+        return;
+      }
       uiRef.current.setSelection(sel.strokeIds.length > 0 || sel.blockIds.length > 0 ? sel : null);
     };
 
@@ -273,7 +284,7 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
       // The selection carries the lasso's bounding box, so the overlay,
       // move, scale and clipboard machinery all work unchanged.
       const sel = await computeAreaSelectionPolygon(pageId, poly, rect, strokesRef.current);
-      uiRef.current.setSelection(sel.strokeIds.length > 0 || sel.blockIds.length > 0 ? sel : null);
+      applySelection(sel);
     };
 
     const finish = async (e: PointerEvent) => {

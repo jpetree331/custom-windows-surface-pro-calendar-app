@@ -18,7 +18,17 @@ function ImageContent({ blob }: { blob: Blob }) {
   return <img src={url} alt="" className="h-full w-full select-none object-fill" draggable={false} />;
 }
 
-function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
+function BlockView({
+  block,
+  pageWidth,
+  pageLogicalH,
+}: {
+  block: Block;
+  pageWidth: number;
+  /** Logical height of the host — PAGE_H on calendar pages, but a note's
+   *  free-aspect page varies with its window shape (clamps must follow). */
+  pageLogicalH: number;
+}) {
   const ui = usePlannerUI();
   const selected = ui.selectedBlockId === block.id;
   // Text-color swatches shared with the ⬚ selection recolor bar.
@@ -61,9 +71,9 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
       : resizeRect(base, edges, dx, dy);
     return {
       x: Math.max(0, Math.min(PAGE_W - 40, r.x)),
-      y: Math.max(0, Math.min(PAGE_H - 24, r.y)),
+      y: Math.max(0, Math.min(pageLogicalH - 24, r.y)),
       w: Math.max(40, Math.min(PAGE_W, r.w)),
-      h: Math.max(24, Math.min(PAGE_H, r.h)),
+      h: Math.max(24, Math.min(pageLogicalH, r.h)),
     };
   };
 
@@ -81,7 +91,7 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
         ? {
             ...st.orig,
             x: Math.max(0, Math.min(PAGE_W - st.orig.w, st.orig.x + dx)),
-            y: Math.max(0, Math.min(PAGE_H - st.orig.h, st.orig.y + dy)),
+            y: Math.max(0, Math.min(pageLogicalH - st.orig.h, st.orig.y + dy)),
             updatedAt: Date.now(),
           }
         : { ...st.orig, ...resizedRect(st, dx, dy), updatedAt: Date.now() };
@@ -247,8 +257,18 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             />
           ))}
           <div
-            className="absolute left-0 flex flex-col items-start gap-0.5 print:hidden"
-            style={{ top: block.type !== "image" ? "-3.6rem" : "-2rem" }}
+            className={`absolute flex flex-col gap-0.5 print:hidden ${
+              // near the RIGHT edge the bar anchors right so it can't clip
+              // off the page (Jo: "right half gets cut off")
+              block.x * scale + 240 > pageWidth ? "right-0 items-end" : "left-0 items-start"
+            }`}
+            style={
+              // near the TOP the bar flips below the box (Jo: "can't see the
+              // options bar" on blocks at the top of a page/note)
+              block.y * scale < (block.type !== "image" ? 92 : 36)
+                ? { top: "calc(100% + 6px)" }
+                : { bottom: "calc(100% + 6px)" }
+            }
             // preventDefault: bar taps must NOT steal focus from the text box —
             // otherwise picking a color mid-edit blurred and closed the editor
             onPointerDown={(e) => {
@@ -257,7 +277,7 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
             }}
           >
             {block.type !== "image" && (
-              <div className="flex items-center gap-1 rounded bg-white/90 px-1 py-0.5 shadow-sm">
+              <div className="flex items-center gap-1 rounded bg-white/90 px-1 py-0.5 shadow-sm" data-text-bar="colors">
                 {swatches.map((s) => (
                   <button
                     key={s.color}
@@ -295,7 +315,11 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
                     }}
                   />
                 </span>
-                <span className="mx-0.5 h-4 w-px bg-slate-300" />
+              </div>
+            )}
+            {block.type !== "image" && (
+              // second line (Jo: colors on top, editing tools on the bottom)
+              <div className="flex items-center gap-1 rounded bg-white/90 px-1 py-0.5 shadow-sm" data-text-bar="tools">
                 <button
                   data-font-action="smaller"
                   title="Smaller text"
@@ -387,18 +411,33 @@ function BlockView({ block, pageWidth }: { block: Block; pageWidth: number }) {
 }
 
 /** All blocks on one page + click-to-create for the text tool. */
-export default function BlocksLayer({ pageId }: { pageId: string }) {
+export default function BlocksLayer({
+  pageId,
+  defaultFontSize = 12,
+}: {
+  pageId: string;
+  /** Starting size for NEW text boxes (12 calendar / 18 notes — Jo). */
+  defaultFontSize?: number;
+}) {
   const ui = usePlannerUI();
   const hostRef = useRef<HTMLDivElement>(null);
-  const [pageWidth, setPageWidth] = useState(0);
+  const [pageDims, setPageDims] = useState({ w: 0, logicalH: PAGE_H });
   const blocks = useLiveQuery(() => db.blocks.where("pageId").equals(pageId).toArray(), [pageId]);
 
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setPageWidth(el.clientWidth));
+    const measure = () =>
+      setPageDims({
+        w: el.clientWidth,
+        // calendar pages are aspect-locked so this computes ≈PAGE_H; a note's
+        // free-aspect page yields its true logical height (drag clamps use it)
+        logicalH:
+          el.clientWidth > 0 ? (el.clientHeight * PAGE_W) / el.clientWidth : PAGE_H,
+      });
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    setPageWidth(el.clientWidth);
+    measure();
     return () => ro.disconnect();
   }, []);
 
@@ -417,7 +456,11 @@ export default function BlocksLayer({ pageId }: { pageId: string }) {
       const block = makeTextBlock(
         pageId,
         (e.clientX - rect.left) * scale,
-        (e.clientY - rect.top) * scale
+        (e.clientY - rect.top) * scale,
+        "",
+        "text",
+        undefined,
+        defaultFontSize
       );
       void addBlock(block).then(() => {
         ui.setSelectedBlockId(block.id);
@@ -431,12 +474,15 @@ export default function BlocksLayer({ pageId }: { pageId: string }) {
     <div
       ref={hostRef}
       data-blocks-layer={pageId}
+      data-logical-h={Math.round(pageDims.logicalH)}
       className="absolute inset-0"
       style={{ pointerEvents: ui.tool === "select" || ui.tool === "text" ? "auto" : "none" }}
       onPointerDown={onPointerDown}
     >
-      {pageWidth > 0 &&
-        (blocks ?? []).map((b) => <BlockView key={b.id} block={b} pageWidth={pageWidth} />)}
+      {pageDims.w > 0 &&
+        (blocks ?? []).map((b) => (
+          <BlockView key={b.id} block={b} pageWidth={pageDims.w} pageLogicalH={pageDims.logicalH} />
+        ))}
     </div>
   );
 }

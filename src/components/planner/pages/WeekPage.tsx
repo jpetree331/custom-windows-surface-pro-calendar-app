@@ -4,7 +4,7 @@ import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame, { LabelPill } from "./PageFrame";
 import EventChips from "../EventChips";
-import BirthdayReminders from "../BirthdayReminders";
+import WeekReminders from "../WeekReminders";
 
 const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
@@ -12,6 +12,8 @@ const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 export default function WeekPage({ page }: { page: Page }) {
   const monday = fromISO(page.dateStart);
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  // computed at render — a fresh mount (page flip, app open) re-evaluates
+  const todayISO = toISO(new Date());
   // Per-day lookup (memoized per year) — edge weeks span adjacent years.
   const marksFor = (d: Date) => {
     const iso = toISO(d);
@@ -30,6 +32,12 @@ export default function WeekPage({ page }: { page: Page }) {
             <div
               key={i}
               className="flex min-h-0 flex-1 border-b-[0.18cqw] border-black last:border-b-0"
+              // bold inset outline makes TODAY jump out (Jo)
+              style={
+                toISO(d) === todayISO
+                  ? { boxShadow: "inset 0 0 0 0.45cqw #1d4ed8" }
+                  : undefined
+              }
             >
               <div
                 className="flex flex-col border-r-[0.18cqw] border-black"
@@ -52,32 +60,36 @@ export default function WeekPage({ page }: { page: Page }) {
               </div>
               <div className="relative flex-1" data-day={toISO(d)}>
                 {/* chips own the TOP of the day (Jo), full width; the wrapper
-                    spans the whole cell so dragged chips can pin anywhere */}
-                <div className="pointer-events-none absolute inset-[0.3cqw]">
-                  <EventChips dayISO={toISO(d)} />
+                    spans the whole cell so dragged chips can pin anywhere.
+                    Right inset leaves the corner for the moon glyph. */}
+                <div className="pointer-events-none absolute inset-[0.3cqw] right-[3cqw]">
+                  <EventChips dayISO={toISO(d)} includeNotices={false} />
                 </div>
-                {/* holiday + moon moved to bottom-LEFT; bottom-right belongs
-                    to the birthday lead reminders */}
                 {(() => {
                   const m = marksFor(d);
-                  if (!m.holidays && !m.moon) return null;
                   return (
-                    <div
-                      className="absolute bottom-[0.3cqw] left-[0.5cqw] flex items-center gap-[0.5cqw]"
-                      style={{ fontSize: "1.5cqw" }}
-                    >
-                      {m.holidays && (
-                        <span className="font-semibold" style={{ color: "#2b6fb3" }}>
-                          {m.holidays.join(" · ")}
+                    <>
+                      {/* moon back in its classic top-right corner (Jo) */}
+                      {m.moon && (
+                        <span
+                          className="absolute right-[0.5cqw] top-[0.2cqw]"
+                          style={{ fontSize: "1.6cqw" }}
+                          title={m.moon.name}
+                        >
+                          {m.moon.glyph}
                         </span>
                       )}
-                      {m.moon && <span title={m.moon.name}>{m.moon.glyph}</span>}
-                    </div>
+                      {m.holidays && (
+                        <div
+                          className="absolute bottom-[0.3cqw] left-[0.5cqw] font-semibold"
+                          style={{ fontSize: "1.5cqw", color: "#2b6fb3" }}
+                        >
+                          {m.holidays.join(" · ")}
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
-                <div className="absolute bottom-[0.3cqw] right-[0.5cqw] max-w-[45%]">
-                  <BirthdayReminders dayISO={toISO(d)} />
-                </div>
               </div>
             </div>
           ))}
@@ -89,7 +101,11 @@ export default function WeekPage({ page }: { page: Page }) {
             <LabelPill text="TASKS" />
           </div>
           <div className="flex min-h-0 flex-1 flex-col border-t-[0.18cqw] border-black p-[0.8cqw]">
-            <LabelPill text="REMINDERS" />
+            {/* the week's 🔔/🎂 chips sit in line with the pill and wrap (Jo) */}
+            <div className="flex flex-wrap items-center gap-[0.4cqw]">
+              <LabelPill text="REMINDERS" />
+              <WeekReminders weekStartISO={page.dateStart} />
+            </div>
             {/* The interactive HABITS grid renders in the overlay stack
                 (HabitGrid.tsx) so pen taps toggle checks. */}
           </div>
