@@ -85,6 +85,37 @@ describe("derived notices (Jo: reminders shown on the day they fire)", () => {
     expect(notices.length).toBe(3); // 1 reminder + 2 birthday leads
   });
 
+  it("skips reminders that fire in the SAME Mon–Sun week as their event (Jo r11)", async () => {
+    const friday: GEvent = {
+      id: "ev_fri",
+      summary: "Board meeting",
+      start: { dateTime: "2026-07-24T09:00:00-05:00" }, // Friday
+      end: { dateTime: "2026-07-24T10:00:00-05:00" },
+      eventType: "default",
+      reminders: {
+        useDefault: false,
+        overrides: [
+          { method: "popup", minutes: 2 * 1440 }, // Wed 22nd — same week → skipped
+          { method: "popup", minutes: 7 * 1440 }, // Fri 17th — prior week → kept
+        ],
+      },
+    };
+    const r = await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([friday], [])));
+    expect(r.notices).toBe(1);
+    const notice = (await db.events.toArray()).find((e) => e.kind === "notice")!;
+    expect(notice.date).toBe("2026-07-17");
+  });
+
+  it("preserves the done-checkmark across re-imports and stops its reminders", async () => {
+    await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
+    const ev = (await db.events.where("googleId").equals("ev_dentist").first())!;
+    await db.events.put({ ...ev, done: true });
+    const r = await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
+    const after = await db.events.where("googleId").equals("ev_dentist").first();
+    expect(after?.done).toBe(true); // survives the upsert
+    expect(r.notices).toBe(0); // done items need no reminding
+  });
+
   it("keeps a dragged chip position across re-imports", async () => {
     await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
     const ev = (await db.events.where("googleId").equals("ev_dentist").first())!;
@@ -108,13 +139,22 @@ describe("moon-phase cleanup + calendar checklist", () => {
         title: "New moon", date: "2026-07-24", allDay: true, updatedAt: 1,
       },
       {
+        // glyph-prefixed + "Third quarter" variants (Jo r11: purge hardening)
+        id: "m3", plannerId: PLANNER_ID, googleId: "g_m3", kind: "event",
+        title: "🌕 Full moon", date: "2026-08-08", allDay: true, updatedAt: 1,
+      },
+      {
+        id: "m4", plannerId: PLANNER_ID, googleId: "g_m4", kind: "event",
+        title: "Third quarter", date: "2026-08-15", allDay: true, updatedAt: 1,
+      },
+      {
         // Jo's own event that happens to mention the moon — NOT purged
         id: "keep", plannerId: PLANNER_ID, kind: "event",
         title: "Full Moon party", date: "2026-07-10", allDay: true, updatedAt: 1,
       },
     ]);
     const purged = await purgeMoonPhaseDuplicates(PLANNER_ID);
-    expect(purged).toBe(2);
+    expect(purged).toBe(4);
     const titles = (await db.events.toArray()).map((e) => e.title);
     expect(titles).toEqual(["Full Moon party"]);
   });

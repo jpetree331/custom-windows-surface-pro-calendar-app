@@ -6,8 +6,9 @@ import { db } from "@/lib/db/db";
 import type { PlannerEvent } from "@/lib/db/types";
 import { usePlannerUI } from "./ui-context";
 import { formatTime } from "@/lib/settings";
-import { moveEventChip, resetEventChipPosition } from "@/lib/events/actions";
+import { moveEventChip, resetEventChipPosition, setEventDone } from "@/lib/events/actions";
 import { clampChipOffset } from "@/lib/events/layout";
+import { toISO } from "@/lib/planner/dates";
 
 /**
  * Colored event/birthday chips for one day cell (week + month templates).
@@ -70,6 +71,7 @@ export default function EventChips({
   const flow = events.filter((e) => e.offsetX == null);
   const pinned = events.filter((e) => e.offsetX != null);
   const maxFlow = compact ? 3 : 6;
+  const todayISO = toISO(new Date());
 
   const openPopover = (e: PlannerEvent, chipEl: HTMLElement) => {
     const r = chipEl.getBoundingClientRect();
@@ -85,15 +87,20 @@ export default function EventChips({
   const chipEl = (e: PlannerEvent, pinnedChip: boolean) => {
     const expanded = expandedId === e.id;
     const draggable = tool === "select" && e.kind !== "notice";
+    // events (not tasks/birthdays) fade once their day has passed (Jo r11)
+    const past = e.kind === "event" && e.date < todayISO;
     return (
       <div
         key={e.id}
         data-event-chip={e.title}
         data-expanded={expanded || undefined}
         data-pinned={pinnedChip || undefined}
+        data-done={e.done || undefined}
         className={`pointer-events-auto z-10 max-w-full cursor-pointer rounded-sm px-[0.35cqw] font-medium leading-snug text-white ${
           expanded ? "whitespace-normal break-words" : "truncate"
-        } ${pinnedChip ? "absolute" : "relative"} ${e.kind === "notice" ? "italic" : ""}`}
+        } ${pinnedChip ? "absolute" : "relative"} ${e.kind === "notice" ? "italic" : ""} ${
+          e.done ? "line-through opacity-60" : past ? "opacity-45" : ""
+        }`}
         style={{
           background: colorOf(e),
           ...(pinnedChip ? { left: `${e.offsetX}%`, top: `${e.offsetY}%` } : null),
@@ -175,6 +182,19 @@ export default function EventChips({
         {e.kind === "birthday" ? "🎂 " : ""}
         {e.startTime && !compact ? `${formatTime(e.startTime, timeFormat)} ` : ""}
         {e.title}
+        {expanded && e.kind !== "notice" && (
+          <button
+            data-chip-action="done"
+            title={e.done ? "Un-check" : "Mark done — crosses it out"}
+            className="ml-1 rounded bg-white/25 px-0.5"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              void setEventDone(e, !e.done);
+            }}
+          >
+            {e.done ? "☑" : "☐"}
+          </button>
+        )}
         {expanded && e.offsetX != null && (
           <button
             data-chip-action="unpin"
@@ -210,14 +230,14 @@ export default function EventChips({
       {popover && (
         <>
           <div
-            className="fixed inset-0 z-20"
+            className="fixed inset-0 z-[3000]"
             data-event-popover-backdrop
             onClick={() => setPopover(null)}
             onPointerDown={(ev) => ev.stopPropagation()}
           />
           <div
             data-event-popover
-            className="fixed z-30 w-60 rounded-lg border border-slate-200 bg-white p-2 text-left shadow-xl"
+            className="fixed z-[3010] w-60 rounded-lg border border-slate-200 bg-white p-2 text-left shadow-xl"
             style={{ left: popover.left, top: popover.top, fontSize: "12px" }}
             onPointerDown={(ev) => ev.stopPropagation()}
           >
@@ -244,6 +264,18 @@ export default function EventChips({
                 before
               </div>
             ) : null}
+            {popover.ev.kind !== "notice" && (
+              <button
+                data-popover-action="done"
+                onClick={() => {
+                  void setEventDone(popover.ev, !popover.ev.done);
+                  setPopover(null);
+                }}
+                className="mt-2 rounded bg-slate-700 px-2 py-1 text-xs font-semibold text-white"
+              >
+                {popover.ev.done ? "Un-check" : "✓ Mark done"}
+              </button>
+            )}
           </div>
         </>
       )}

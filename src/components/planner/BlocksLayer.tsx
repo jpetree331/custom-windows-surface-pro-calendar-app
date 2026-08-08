@@ -22,12 +22,15 @@ function BlockView({
   block,
   pageWidth,
   pageLogicalH,
+  initialEdit = false,
 }: {
   block: Block;
   pageWidth: number;
   /** Logical height of the host — PAGE_H on calendar pages, but a note's
    *  free-aspect page varies with its window shape (clamps must follow). */
   pageLogicalH: number;
+  /** Open ready-to-type on mount (a note's body box — Jo r11). */
+  initialEdit?: boolean;
 }) {
   const ui = usePlannerUI();
   const selected = ui.selectedBlockId === block.id;
@@ -42,7 +45,9 @@ function BlockView({
   const cq = (v: number) => `${(v / PAGE_W) * 100}cqw`;
   // A brand-new empty text box opens ready to type — no double-click needed.
   const [editing, setEditing] = useState(
-    () => block.type !== "image" && block.content === "" && Date.now() - block.createdAt < 3000
+    () =>
+      initialEdit ||
+      (block.type !== "image" && block.content === "" && Date.now() - block.createdAt < 3000)
   );
   const textRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -164,7 +169,12 @@ function BlockView({
       el.style.height = prev.height;
     }
     setEditing(false);
-    if (text !== block.content || fitted.w !== undefined) {
+    // No-op guard: auto-opened note bodies blur on every open — an unchanged
+    // box must not write (it would spam undo entries and updatedAt).
+    const dimsChanged =
+      fitted.w !== undefined &&
+      (Math.abs(fitted.w - block.w) > 0.5 || Math.abs((fitted.h ?? block.h) - block.h) > 0.5);
+    if (text !== block.content || dimsChanged) {
       void updateBlock(block, { ...block, content: text, ...fitted, updatedAt: Date.now() });
     }
   };
@@ -414,10 +424,13 @@ function BlockView({
 export default function BlocksLayer({
   pageId,
   defaultFontSize = 12,
+  autoEditFirst = false,
 }: {
   pageId: string;
   /** Starting size for NEW text boxes (12 calendar / 18 notes — Jo). */
   defaultFontSize?: number;
+  /** Notes: the oldest text box opens ready to type on mount (Jo r11). */
+  autoEditFirst?: boolean;
 }) {
   const ui = usePlannerUI();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -480,9 +493,22 @@ export default function BlocksLayer({
       onPointerDown={onPointerDown}
     >
       {pageDims.w > 0 &&
-        (blocks ?? []).map((b) => (
-          <BlockView key={b.id} block={b} pageWidth={pageDims.w} pageLogicalH={pageDims.logicalH} />
-        ))}
+        (() => {
+          const firstTextId = autoEditFirst
+            ? [...(blocks ?? [])]
+                .filter((b) => b.type !== "image")
+                .sort((a, b) => a.createdAt - b.createdAt)[0]?.id
+            : undefined;
+          return (blocks ?? []).map((b) => (
+            <BlockView
+              key={b.id}
+              block={b}
+              pageWidth={pageDims.w}
+              pageLogicalH={pageDims.logicalH}
+              initialEdit={b.id === firstTextId}
+            />
+          ));
+        })()}
     </div>
   );
 }

@@ -106,7 +106,8 @@ export default function ManageDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      // z-band 3200: Settings must cover floating notes (≤2600, Jo r11)
+      className="fixed inset-0 z-[3200] flex items-center justify-center bg-black/40 p-4"
       data-manage-dialog
       onClick={onClose}
     >

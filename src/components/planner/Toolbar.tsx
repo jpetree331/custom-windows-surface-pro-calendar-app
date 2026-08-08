@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PEN_COLORS, HIGHLIGHTER_WIDTH_PT, ERASER_RADIUS_PT, type ToolId } from "@/lib/ink/tools";
+import { PEN_COLORS, HIGHLIGHTER_WIDTH_PT, type ToolId } from "@/lib/ink/tools";
 import * as history from "@/lib/history";
 import type { ViewSettings } from "@/lib/planner/view-settings";
 import { usePlannerUI } from "./ui-context";
@@ -41,10 +41,11 @@ function ColorWidthEditor({
   useEffect(() => setHexDraft(color), [color]);
   return (
     <>
-      <div className="fixed inset-0 z-30" data-pen-editor-backdrop onClick={onClose} />
+      {/* z-band 3000+: overlays sit ABOVE floating notes (≤2600, Jo r11) */}
+      <div className="fixed inset-0 z-[3000]" data-pen-editor-backdrop onClick={onClose} />
       <div
         data-pen-editor={name}
-        className="fixed z-40 w-48 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+        className="fixed z-[3010] w-48 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
         style={{ left: anchor.left, bottom: anchor.bottom }}
       >
         <div className="mb-1 text-xs font-bold text-slate-600">{name}</div>
@@ -125,8 +126,8 @@ export default function Toolbar({
 
   // Per-slot palette customization (Jo's colors are the defaults).
   const [palette, setPalette] = useState(PEN_COLORS);
-  // number = pen slot; "rect"/"circle" = the shared shape color/width editor
-  const [editSlot, setEditSlot] = useState<number | "rect" | "circle" | null>(null);
+  // number = pen slot; "rect"/"circle" = shape editor; "eraser" = size editor
+  const [editSlot, setEditSlot] = useState<number | "rect" | "circle" | "eraser" | null>(null);
   const [openSnapshot, setOpenSnapshot] = useState<{ color: string; width: number } | null>(null);
   // Popovers must be position:fixed — the toolbar's overflow CLIPS anything
   // absolutely positioned above it (they'd open invisibly).
@@ -280,7 +281,58 @@ export default function Toolbar({
       })}
       <span className="mx-1 h-6 w-px bg-slate-300" />
       {toolBtn("highlighter", "🖍", `Highlighter (${HIGHLIGHTER_WIDTH_PT}pt)`)}
-      {toolBtn("eraser", "◨", `Eraser (${ERASER_RADIUS_PT}pt) — removes whole strokes`)}
+      {/* eraser: tap = pick; tap again = size editor (Jo r11) */}
+      <button
+        data-tool="eraser"
+        title={`Eraser (${ui.eraserRadius}pt) — removes whole strokes; tap again to change size`}
+        onClick={(e) => {
+          if (ui.tool === "eraser") {
+            if (editSlot === "eraser") {
+              closeEditor();
+            } else {
+              setEditAnchor(anchorFor(e.currentTarget));
+              setEditSlot("eraser");
+            }
+          } else {
+            ui.setTool("eraser");
+          }
+        }}
+        className={`flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg ${
+          ui.tool === "eraser" ? "bg-slate-300 shadow-inner" : "hover:bg-slate-100"
+        }`}
+      >
+        ◨
+      </button>
+      {editSlot === "eraser" && editAnchor && (
+        <>
+          <div className="fixed inset-0 z-[3000]" data-pen-editor-backdrop onClick={closeEditor} />
+          <div
+            data-pen-editor="Eraser"
+            className="fixed z-[3010] w-48 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+            style={{ left: editAnchor.left, bottom: editAnchor.bottom }}
+          >
+            <div className="mb-1 text-xs font-bold text-slate-600">Eraser</div>
+            <label className="block text-xs text-slate-500">
+              Size: {ui.eraserRadius}pt
+              <input
+                type="range"
+                min={2}
+                max={20}
+                step={0.5}
+                value={ui.eraserRadius}
+                data-input="eraser-size"
+                onChange={(e) => ui.setEraserRadius(Number(e.target.value))}
+                className="w-full"
+              />
+            </label>
+            <div className="mt-1 text-right">
+              <button className="text-xs font-semibold text-blue-600" onClick={closeEditor}>
+                Done
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       {toolBtn("text", "T", "Text box — tap a page to place")}
       {shapeBtn("rect", "▭", "Rectangle — uses the active pen color")}
       {shapeBtn("circle", "◯", "Circle / oval — uses the active pen color")}
@@ -389,10 +441,10 @@ export default function Toolbar({
         </button>
         {exportMenu && exportAnchor && (
           <>
-            <div className="fixed inset-0 z-30" data-export-menu-backdrop onClick={() => setExportMenu(false)} />
+            <div className="fixed inset-0 z-[3000]" data-export-menu-backdrop onClick={() => setExportMenu(false)} />
             <div
               data-export-menu
-              className="fixed z-40 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+              className="fixed z-[3010] w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
               style={{ right: exportAnchor.right, bottom: exportAnchor.bottom }}
             >
               <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Download PDF</div>

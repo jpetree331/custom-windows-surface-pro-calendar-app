@@ -125,6 +125,8 @@ export interface PlannerEvent {
   noticeKind?: "event-reminder" | "birthday-lead";
   /** notice rows only: precomputed label ("🔔 Dentist (in 3d)"). */
   leadLabel?: string;
+  /** Jo checked it off — local only, never written back to Google. */
+  done?: boolean;
   updatedAt: number;
 }
 
@@ -154,6 +156,8 @@ export interface Note {
   h: number;
   z: number;
   open: boolean;
+  /** Manual position for the "Custom" sort in the Notes menu. */
+  order?: number;
   createdAt: number;
   updatedAt: number;
 }

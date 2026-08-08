@@ -23,6 +23,9 @@ export interface PlannerUI {
   penWidth: number;
   setTool: (t: ToolId) => void;
   setPen: (color: string, width: number) => void;
+  /** Eraser radius in pt (Jo r11: adjustable, was a fixed constant). */
+  eraserRadius: number;
+  setEraserRadius: (r: number) => void;
   selectedBlockId: string | null;
   setSelectedBlockId: (id: string | null) => void;
   /** Page currently centered in the viewport — paste target. */

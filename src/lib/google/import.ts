@@ -2,7 +2,7 @@ import { db } from "@/lib/db/db";
 import type { PlannerEvent } from "@/lib/db/types";
 import { queueSync } from "@/lib/sync";
 import { MOON_NAMES } from "@/lib/calendar/moon";
-import { addDays, fromISO, toISO } from "@/lib/planner/dates";
+import { addDays, fromISO, mondayOf as mondayOfDate, toISO } from "@/lib/planner/dates";
 import { listCalendars, listInstances, type FetchLike, type GEvent } from "./api";
 import { listAllTasks } from "./tasks";
 
@@ -58,13 +58,22 @@ export async function getGoogleCalendarIds(plannerId: string): Promise<string[] 
  * every import — idempotent, self-healing if the calendar sneaks back in.
  */
 export async function purgeMoonPhaseDuplicates(plannerId: string): Promise<number> {
-  // Case-insensitive: Google's calendar titles these "Full moon" / "New moon"
-  // (lowercase m) — an exact match against MOON_NAMES never fired (Jo round
-  // 10: "unsubscribed but the items didn't go away").
-  const moonTitles = new Set((MOON_NAMES as readonly string[]).map((n) => n.toLowerCase()));
+  // Normalized exact match: lowercase, strip emoji/punctuation. Covers
+  // Google's actual casing ("Full moon") plus glyph-prefixed variants, while
+  // never touching a real event like "Full Moon party" (extra words fail the
+  // exact match). r11 also runs this at app launch — a lapsed sync token had
+  // kept the only caller (importYear) from ever firing for Jo.
+  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
+  const moonTitles = new Set([
+    ...(MOON_NAMES as readonly string[]).map(normalize),
+    "third quarter",
+    "first quarter moon",
+    "last quarter moon",
+    "third quarter moon",
+  ]);
   const stale = await db.events
     .where("plannerId").equals(plannerId)
-    .and((e) => !!e.googleId && moonTitles.has(e.title.trim().toLowerCase()))
+    .and((e) => !!e.googleId && moonTitles.has(normalize(e.title)))
     .toArray();
   if (stale.length) {
     await db.events.bulkDelete(stale.map((e) => e.id));
@@ -74,6 +83,9 @@ export async function purgeMoonPhaseDuplicates(plannerId: string): Promise<numbe
 }
 
 const addDaysISO = (iso: string, days: number) => toISO(addDays(fromISO(iso), days));
+
+/** Monday of the ISO date's week — the planner's week identity. */
+const mondayOf = (iso: string) => toISO(mondayOfDate(fromISO(iso)));
 
 function makeNotice(
   plannerId: string,
@@ -109,6 +121,7 @@ export async function regenerateNotices(plannerId: string): Promise<number> {
   const notices: PlannerEvent[] = [];
   for (const p of events) {
     if (p.kind === "notice") continue;
+    if (p.done) continue; // checked-off items need no reminding (Jo r11)
     if (p.kind === "birthday") {
       for (const [weeks, label] of [[2, "2 wk"], [1, "1 wk"]] as const) {
         notices.push(
@@ -118,8 +131,12 @@ export async function regenerateNotices(plannerId: string): Promise<number> {
     }
     for (const min of p.reminderOverridesMin ?? []) {
       const days = Math.round(min / 1440);
+      const fireDate = addDaysISO(p.date, -days);
+      // A reminder that fires in the SAME Mon–Sun week as its event is
+      // redundant — the event is already visible on that week page (Jo r11).
+      if (mondayOf(fireDate) === mondayOf(p.date)) continue;
       notices.push(
-        makeNotice(plannerId, p, addDaysISO(p.date, -days), "event-reminder", `🔔 ${p.title} (in ${days}d)`)
+        makeNotice(plannerId, p, fireDate, "event-reminder", `🔔 ${p.title} (in ${days}d)`)
       );
     }
   }
@@ -149,8 +166,14 @@ export async function upsertEvents(rows: PlannerEvent[]): Promise<{ added: numbe
             .first()
         : undefined;
       const id = existing?.id ?? row.id;
-      // Keep Jo's dragged chip position across re-imports.
-      await db.events.put({ ...row, id, offsetX: existing?.offsetX, offsetY: existing?.offsetY });
+      // Keep Jo's dragged chip position AND her done-checkmark across re-imports.
+      await db.events.put({
+        ...row,
+        id,
+        offsetX: existing?.offsetX,
+        offsetY: existing?.offsetY,
+        done: existing?.done,
+      });
       savedIds.push(id);
       existing ? updated++ : added++;
     }

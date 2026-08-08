@@ -263,6 +263,10 @@ function drawDayMarks(
       color: LABEL_BLUE,
     });
   }
+  // Jo r11: the SCREEN fades past-day events so "today" reads at a glance.
+  // A PDF is a fixed snapshot with no live "today" — fading by export date
+  // would mislead a reader later, so it's intentionally not reproduced here
+  // (the done-strikethrough below IS, since that's a fact about the item).
   const events = (ctx.eventsByDate.get(iso) ?? []).filter(
     (e) => includeNotices || e.kind !== "notice"
   );
@@ -296,6 +300,15 @@ function drawDayMarks(
       color: rgb(1, 1, 1),
       maxWidth: w,
     });
+    if (e.done) {
+      // checked-off items print crossed out, matching the screen (Jo r11)
+      page.drawLine({
+        start: { x: px(box.x + 3) + 1, y: py(yTop + rowH - 1) + 2 + size * 0.35 },
+        end: { x: px(box.x + 3) + w - 1, y: py(yTop + rowH - 1) + 2 + size * 0.35 },
+        thickness: 0.8,
+        color: rgb(1, 1, 1),
+      });
+    }
   });
 }
 

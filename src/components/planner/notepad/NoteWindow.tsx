@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { Note } from "@/lib/db/types";
-import { updateNote } from "@/lib/notes/actions";
+import { updateNote, updateNoteChrome } from "@/lib/notes/actions";
 import BlocksLayer from "../BlocksLayer";
 import InkCanvas from "../InkCanvas";
 import FloatingWindow from "./FloatingWindow";
@@ -27,6 +27,10 @@ export default function NoteWindow({
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ zoom: 1, panX: 0, panY: 0 }); // pan ≤ 0, fractions
+  // Title is click-to-edit (Jo r11): a real <input> at rest let Windows Ink's
+  // handwriting panel hijack pen strokes near the top of the note and type
+  // them into the title. A button can't receive handwriting.
+  const [editingTitle, setEditingTitle] = useState(false);
   const touches = useRef(new Map<number, { x: number; y: number }>());
   const pinchBase = useRef<{ dist: number; zoom: number } | null>(null);
 
@@ -81,19 +85,38 @@ export default function NoteWindow({
       rect={note}
       z={note.z}
       onFocus={onFocus}
-      onClose={() => void updateNote(note.id, { open: false })}
-      onCommitRect={(r) => void updateNote(note.id, r)}
+      onClose={() => void updateNoteChrome(note.id, { open: false })}
+      onCommitRect={(r) => void updateNoteChrome(note.id, r)}
       title={
-        <input
-          key={note.id}
-          data-note-title={note.id}
-          defaultValue={note.title}
-          placeholder={derivedTitle}
-          // commit on blur (not per keystroke): a controlled input racing the
-          // async liveQuery echo drops characters under fast typing
-          onBlur={(e) => void updateNote(note.id, { title: e.target.value })}
-          className="w-full bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-slate-400"
-        />
+        editingTitle ? (
+          <input
+            key={note.id}
+            autoFocus
+            data-note-title={note.id}
+            defaultValue={note.title}
+            placeholder={derivedTitle}
+            // commit on blur (not per keystroke): a controlled input racing
+            // the async liveQuery echo drops characters under fast typing
+            onBlur={(e) => {
+              void updateNote(note.id, { title: e.target.value });
+              setEditingTitle(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === "Escape") (e.target as HTMLInputElement).blur();
+            }}
+            className="w-full bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+          />
+        ) : (
+          <button
+            data-note-title-display={note.id}
+            title="Rename this note"
+            onClick={() => setEditingTitle(true)}
+            // max-w leaves bare title-bar space so the window stays draggable
+            className="max-w-[75%] truncate text-left text-sm font-semibold text-slate-800 hover:text-blue-700"
+          >
+            {note.title.trim() || derivedTitle}
+          </button>
+        )
       }
     >
       <div
@@ -117,7 +140,8 @@ export default function NoteWindow({
             isolation: "isolate",
           }}
         >
-          <BlocksLayer pageId={note.id} defaultFontSize={18} />
+          {/* autoEditFirst: cursor lands in the body text box on open (Jo) */}
+          <BlocksLayer pageId={note.id} defaultFontSize={18} autoEditFirst />
           <InkCanvas pageId={note.id} />
         </div>
         {view.zoom > 1 && (

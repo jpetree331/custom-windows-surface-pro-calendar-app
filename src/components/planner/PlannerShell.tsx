@@ -9,13 +9,15 @@ import { ensurePlannerSeeded } from "@/lib/planner/generate";
 import { currentWeekPageIndex, preferOriginalIndex } from "@/lib/planner/navigation";
 import { toISO } from "@/lib/planner/dates";
 import { PAGE_W, PAGE_H, PLANNER_YEAR } from "@/lib/planner/constants";
-import { PEN_COLORS, type ToolId } from "@/lib/ink/tools";
+import { ERASER_RADIUS_PT, PEN_COLORS, type ToolId } from "@/lib/ink/tools";
 import * as history from "@/lib/history";
 import {
   addBlankPage,
   addBlock,
+  copyBlockToClipboard,
   copyPageToClipboard,
   copySelectionToClipboard,
+  deleteBlock,
   deletePage,
   duplicatePage,
   getClipboardBlock,
@@ -32,6 +34,7 @@ import { getTimeFormat, setTimeFormat as persistTimeFormat, type TimeFormat } fr
 import { PLANNER_SLUG } from "@/lib/branding";
 import { saveFile } from "@/lib/save";
 import { maybeAutoSync } from "@/lib/google/autosync";
+import { purgeMoonPhaseDuplicates } from "@/lib/google/import";
 import { ensureStarterCategories } from "@/lib/categories/actions";
 import { addSideButton, ensureSideButtonsSeeded } from "@/lib/planner/sideButtons";
 import NotepadManager from "./notepad/NotepadManager";
@@ -61,6 +64,11 @@ export default function PlannerShell() {
   const [tool, setTool] = useState<ToolId>("pen");
   const [penColor, setPenColor] = useState(PEN_COLORS[0].color);
   const [penWidth, setPenWidth] = useState(PEN_COLORS[0].width);
+  const [eraserRadius, setEraserRadiusState] = useState(() => {
+    if (typeof localStorage === "undefined") return ERASER_RADIUS_PT;
+    const saved = Number(localStorage.getItem("jotter.eraserRadius"));
+    return saved >= 2 && saved <= 20 ? saved : ERASER_RADIUS_PT;
+  });
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [selection, setSelection] = useState<AreaSelection | null>(null);
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
@@ -117,6 +125,10 @@ export default function PlannerShell() {
     const p = await ensurePlannerSeeded(year);
     await ensureStarterCategories(p.id);
     await ensureSideButtonsSeeded(p.id);
+    // Local-only cleanup, so it must NOT wait for a Google sync: Jo's stale
+    // moon-phase rows outlived round 10's purge because her auto-sync token
+    // had lapsed and importYear (the only caller) never ran.
+    void purgeMoonPhaseDuplicates(p.id);
     const years = (await db.planners.toArray()).map((pl) => pl.year).sort();
     // A newer loadYear superseded this one mid-flight — drop the stale result.
     if (req !== loadYearSeq.current) return;
@@ -349,6 +361,11 @@ export default function PlannerShell() {
         setPenColor(c);
         setPenWidth(w);
       },
+      eraserRadius,
+      setEraserRadius: (r: number) => {
+        localStorage.setItem("jotter.eraserRadius", String(r));
+        setEraserRadiusState(r);
+      },
       selectedBlockId,
       setSelectedBlockId,
       selection,
@@ -372,7 +389,7 @@ export default function PlannerShell() {
       },
       flipPage,
     }),
-    [planner?.id, planner?.year, tool, penColor, penWidth, selectedBlockId, selection, timeFormat, currentPageId, jumpToIndex, flipPage]
+    [planner?.id, planner?.year, tool, penColor, penWidth, eraserRadius, selectedBlockId, selection, timeFormat, currentPageId, jumpToIndex, flipPage]
   );
 
   const jumpToMonth = useCallback(
@@ -438,6 +455,11 @@ export default function PlannerShell() {
 
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
+  const selectedBlockIdRef = useRef(selectedBlockId);
+  selectedBlockIdRef.current = selectedBlockId;
+  /** The focused note's page id — Ctrl+V while a note has focus must paste
+   *  INTO the note, not onto the calendar page hidden behind it (r11 review). */
+  const activeNoteRef = useRef<string | null>(null);
 
   /** Paste the ⬚ clipboard onto the page in view, centered, and SELECT the
    *  result so it's visibly there and immediately draggable. */
@@ -497,6 +519,21 @@ export default function PlannerShell() {
       }
     };
 
+    // Ctrl+C/X also cover a SINGLE selected item (Jo r11) — round 10's
+    // "one item promotes to an item selection" left the hotkeys area-only.
+    const copySelectedBlock = async (cut: boolean) => {
+      const id = selectedBlockIdRef.current;
+      if (!id) return false;
+      const block = await db.blocks.get(id);
+      if (!block) return false;
+      copyBlockToClipboard(block);
+      if (cut) {
+        await deleteBlock(block); // Ctrl+Z restores
+        setSelectedBlockId(null);
+      }
+      return true;
+    };
+
     const onKey = (e: KeyboardEvent) => {
       if (isTyping()) return;
       const sel = selectionRef.current;
@@ -506,13 +543,33 @@ export default function PlannerShell() {
       } else if (e.ctrlKey && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
         e.preventDefault();
         void history.redo();
-      } else if (e.ctrlKey && e.key.toLowerCase() === "c" && sel) {
+      } else if (e.ctrlKey && e.key.toLowerCase() === "c" && (sel || selectedBlockIdRef.current)) {
         e.preventDefault();
-        void copySelectionToClipboard(sel, false);
-      } else if (e.ctrlKey && e.key.toLowerCase() === "x" && sel) {
+        if (sel) void copySelectionToClipboard(sel, false);
+        else void copySelectedBlock(false);
+      } else if (e.ctrlKey && e.key.toLowerCase() === "x" && (sel || selectedBlockIdRef.current)) {
         e.preventDefault();
-        void copySelectionToClipboard(sel, true);
-        setSelection(null);
+        if (sel) {
+          void copySelectionToClipboard(sel, true);
+          setSelection(null);
+        } else {
+          void copySelectedBlock(true);
+        }
+      } else if (e.ctrlKey && e.key.toLowerCase() === "v") {
+        // Jo r11 root cause: the browser only fires a `paste` event when the
+        // OS clipboard has content — cut ink lives in our INTERNAL clipboard,
+        // so Ctrl+V did nothing. Handle internal paste on keydown; when we
+        // don't, the native paste event still delivers OS images/text.
+        if (hasSelectionClipboard()) {
+          e.preventDefault();
+          void pasteSelectionCentered();
+        } else if (getClipboardBlock()) {
+          e.preventDefault();
+          const pageId = activeNoteRef.current ?? viewportCenterPageId();
+          if (pageId) {
+            void pasteClipboardBlock(pageId).then((b) => b && setSelectedBlockId(b.id));
+          }
+        }
       } else if (e.key === "Escape") {
         setSelection(null);
         setSelectedBlockId(null);
@@ -615,7 +672,10 @@ export default function PlannerShell() {
           className="relative min-h-0 flex-1 bg-slate-400/60"
           // clicking back into the planner restores its Ctrl+Z scope after
           // working in a Notepad window (which switches to NOTES_SCOPE)
-          onPointerDownCapture={() => history.setActivePlanner(planner.id)}
+          onPointerDownCapture={() => {
+            history.setActivePlanner(planner.id);
+            activeNoteRef.current = null; // pastes target the planner again
+          }}
         >
           <SideButtons
             plannerId={planner.id}
@@ -722,7 +782,13 @@ export default function PlannerShell() {
         </div>
         {/* floating Notepad windows — siblings of the feed, so its pan/pinch
             listeners never see their events */}
-        <NotepadManager menuAnchor={notepadMenu} onMenuClose={() => setNotepadMenu(null)} />
+        <NotepadManager
+          menuAnchor={notepadMenu}
+          onMenuClose={() => setNotepadMenu(null)}
+          onNoteFocus={(noteId) => {
+            activeNoteRef.current = noteId;
+          }}
+        />
         <Toolbar
           onOpenManage={() => setShowManage(true)}
           onExport={(req) => void onExport(req)}
@@ -737,7 +803,8 @@ export default function PlannerShell() {
           onFlip={flipPage}
         />
         {ctxMenu && (
-          <div className="fixed inset-0 z-50" data-page-context-menu onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}>
+          // z-band 3200: dialogs/menus above floating notes (≤2600, Jo r11)
+          <div className="fixed inset-0 z-[3200]" data-page-context-menu onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}>
             <div
               className="absolute w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
               style={{
@@ -894,7 +961,7 @@ export default function PlannerShell() {
         />
         {renameTarget && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            className="fixed inset-0 z-[3200] flex items-center justify-center bg-black/40 p-4"
             data-rename-page-dialog
             onClick={() => setRenameTarget(null)}
           >
@@ -932,7 +999,7 @@ export default function PlannerShell() {
         )}
         {showAddPage && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            className="fixed inset-0 z-[3200] flex items-center justify-center bg-black/40 p-4"
             data-add-page-dialog
             onClick={() => setShowAddPage(false)}
           >

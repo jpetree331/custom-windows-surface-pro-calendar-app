@@ -6,7 +6,6 @@ import { db } from "@/lib/db/db";
 import type { Stroke } from "@/lib/db/types";
 import { PAGE_W } from "@/lib/planner/constants";
 import {
-  ERASER_RADIUS_PT,
   HIGHLIGHTER_OPACITY,
   HIGHLIGHTER_WIDTH_PT,
   PT_TO_UNITS,
@@ -156,7 +155,10 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
     };
 
     const eraseAt = (x: number, y: number) => {
-      const hits = strokesHitByEraser(strokesRef.current, x, y, ERASER_RADIUS_PT * PT_TO_UNITS * 2);
+      // radius is live UI state now (Jo r11: adjustable eraser)
+      const hits = strokesHitByEraser(
+        strokesRef.current, x, y, uiRef.current.eraserRadius * PT_TO_UNITS * 2
+      );
       if (hits.length === 0) return;
       for (const id of hits) {
         const s = strokesRef.current.find((st) => st.id === id);

@@ -17,3 +17,10 @@ export async function resetEventChipPosition(e: PlannerEvent) {
   await db.events.put({ ...e, offsetX: undefined, offsetY: undefined, updatedAt: Date.now() });
   await queueSync("events", e.id, "put");
 }
+
+/** Check off / un-check an imported item (Jo r11). Local-only — Google is
+ *  never told; survives re-syncs like the drag offsets do. */
+export async function setEventDone(e: PlannerEvent, done: boolean) {
+  await db.events.put({ ...e, done: done || undefined, updatedAt: Date.now() });
+  await queueSync("events", e.id, "put");
+}
