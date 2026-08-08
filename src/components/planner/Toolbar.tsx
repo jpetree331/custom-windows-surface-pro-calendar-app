@@ -111,6 +111,7 @@ export default function Toolbar({
   pageCount,
   currentPageIndex,
   onFlip,
+  onSyncNow,
 }: {
   onOpenManage: () => void;
   onExport: (req: ExportRequest) => void;
@@ -119,6 +120,8 @@ export default function Toolbar({
   pageCount: number;
   currentPageIndex: number;
   onFlip: (dir: 1 | -1) => void;
+  /** Manual Google sync; null when no client id is configured. */
+  onSyncNow: (() => Promise<{ ok: boolean; message: string }>) | null;
 }) {
   const ui = usePlannerUI();
   const [, force] = useState(0);
@@ -177,6 +180,20 @@ export default function Toolbar({
   const closeEditor = () => {
     setEditSlot(null);
     setOpenSnapshot(null);
+  };
+
+  // Manual sync feedback lives on the button itself (busy spin → ✓ / ⚠);
+  // the last result also lands in the tooltip.
+  const [syncState, setSyncState] = useState<"idle" | "busy" | "ok" | "err">("idle");
+  const [syncMessage, setSyncMessage] = useState("Sync with Google now");
+  const runSync = async () => {
+    if (!onSyncNow || syncState === "busy") return;
+    setSyncState("busy");
+    setSyncMessage("Syncing…");
+    const r = await onSyncNow();
+    setSyncState(r.ok ? "ok" : "err");
+    setSyncMessage(r.message);
+    setTimeout(() => setSyncState("idle"), 3000);
   };
 
   const toolBtn = (tool: ToolId, label: string, title: string, extra?: string) => (
@@ -423,7 +440,24 @@ export default function Toolbar({
       >
         ＋
       </button>
-      <div className="relative ml-auto">
+      {/* Google sync — visible so the weekly Testing-mode re-consent is one
+          tap, not a trip into Settings (Jo r11 follow-up) */}
+      <button
+        data-action="sync-now"
+        title={onSyncNow ? syncMessage : "Google isn't configured"}
+        disabled={!onSyncNow || syncState === "busy"}
+        onClick={() => void runSync()}
+        className="ml-auto flex h-9 min-w-9 items-center justify-center rounded-md px-1.5 text-lg hover:bg-slate-100 disabled:opacity-40"
+      >
+        {syncState === "ok" ? (
+          <span className="text-green-600">✓</span>
+        ) : syncState === "err" ? (
+          <span className="text-red-600">⚠</span>
+        ) : (
+          <span className={syncState === "busy" ? "animate-spin" : ""}>🔄</span>
+        )}
+      </button>
+      <div className="relative">
         <button
           data-action="export-pdf"
           title="Download PDF — current page, a range, or the whole year"

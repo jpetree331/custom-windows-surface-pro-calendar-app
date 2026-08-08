@@ -33,8 +33,9 @@ import {
 import { getTimeFormat, setTimeFormat as persistTimeFormat, type TimeFormat } from "@/lib/settings";
 import { PLANNER_SLUG } from "@/lib/branding";
 import { saveFile } from "@/lib/save";
-import { maybeAutoSync } from "@/lib/google/autosync";
-import { purgeMoonPhaseDuplicates } from "@/lib/google/import";
+import { maybeAutoSync, recordManualSync } from "@/lib/google/autosync";
+import { importYear, purgeMoonPhaseDuplicates } from "@/lib/google/import";
+import { getAccessToken, googleClientId } from "@/lib/google/auth";
 import { ensureStarterCategories } from "@/lib/categories/actions";
 import { addSideButton, ensureSideButtonsSeeded } from "@/lib/planner/sideButtons";
 import NotepadManager from "./notepad/NotepadManager";
@@ -623,6 +624,25 @@ export default function PlannerShell() {
     [viewportCenterPageId, jumpToIndex]
   );
 
+  /** Toolbar 🔄 — same flow as Settings' "Connect & sync now", surfaced so
+   *  the weekly Testing-mode re-consent is one visible tap. */
+  const onSyncNow = useCallback(async () => {
+    if (!planner) return { ok: false, message: "Planner not loaded yet" };
+    try {
+      const token = await getAccessToken();
+      const r = await importYear(planner.id, planner.year, token);
+      recordManualSync(planner.id); // resets the auto-sync clock too
+      return {
+        ok: true,
+        message: `Synced: ${r.added} new, ${r.updated} refreshed${
+          r.tasks ? `, ${r.tasks} tasks` : ""
+        }${r.warnings.length ? ` — ${r.warnings[0]}` : ""}`,
+      };
+    } catch (err) {
+      return { ok: false, message: String(err instanceof Error ? err.message : err) };
+    }
+  }, [planner]);
+
   const onExport = useCallback(
     async (req: { scope: "year" | "page" | "range"; fromIndex?: number; toIndex?: number }) => {
       const { exportPdf } = await import("@/lib/pdf/export");
@@ -801,6 +821,7 @@ export default function PlannerShell() {
               : Math.max(1, pages.findIndex((p) => p.id === currentPageId) + 1)
           }
           onFlip={flipPage}
+          onSyncNow={googleClientId() ? onSyncNow : null}
         />
         {ctxMenu && (
           // z-band 3200: dialogs/menus above floating notes (≤2600, Jo r11)
