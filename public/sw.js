@@ -1,6 +1,11 @@
 /* Jo's Planner service worker — offline-first shell.
-   Static assets: cache-first. Navigations: network-first with cache fallback. */
-const CACHE = "jotter-v1";
+   Static assets: cache-first. Navigations: network-first with cache fallback.
+
+   BUMP THIS on any release that must reach an installed app promptly. The
+   browser only re-installs the worker when these bytes change, and the old
+   caches are only swept when the name differs — a fixed name meant a stale
+   install could keep serving old code indefinitely (Jo r12). */
+const CACHE = "jotter-v2-r12";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(["/"])));

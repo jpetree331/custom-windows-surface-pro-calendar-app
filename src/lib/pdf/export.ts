@@ -238,8 +238,9 @@ function drawDayMarks(
   iso: string,
   box: { x: number; y: number; w: number; h: number }, // logical, y = top
   compact: boolean,
-  // week cells exclude 🔔/🎂 notices — they print under REMINDERS instead,
-  // matching the round-10 screen layout (month cells keep them inline)
+  // Both templates now pass false: week pages print notices under the
+  // REMINDERS pill instead (r10), and month pages don't show them at all
+  // (r12). Kept as a parameter so a future template can opt back in.
   includeNotices = true
 ) {
   const year = Number(iso.slice(0, 4));
@@ -465,7 +466,8 @@ function drawMonth(ctx: Ctx, page: PDFPage, p: Page) {
     const cellTop = gridTop + headH + r * rowH;
     page.drawText(String(day), { x: px(left + c * colW + 4), y: py(cellTop + 16), size: 11, font: ctx.bold, color: DATE_BLUE });
     const iso = `${year}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    drawDayMarks(ctx, page, iso, { x: left + c * colW, y: cellTop, w: colW, h: rowH }, true);
+    // no reminder chips in month cells, matching the screen (Jo r12)
+    drawDayMarks(ctx, page, iso, { x: left + c * colW, y: cellTop, w: colW, h: rowH }, true, false);
   }
 }
 

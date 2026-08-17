@@ -14,9 +14,45 @@ export default function PwaRegister() {
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       if (process.env.NODE_ENV === "production") {
-        navigator.serviceWorker.register("/sw.js").catch((err) => {
-          console.warn("Service worker registration failed:", err);
-        });
+        void navigator.serviceWorker
+          .register("/sw.js")
+          .then((reg) => {
+            // Pick up a new deploy without needing a full app relaunch: an
+            // installed PWA that's only ever resumed kept running whatever
+            // bundle it loaded first (Jo r12).
+            // Reload into the new build at a SAFE moment: every text surface
+            // in this app commits on blur, so an instant reload would discard
+            // whatever Jo was mid-way through typing (r12 review). Wait until
+            // nothing is being edited, or until she switches away.
+            let pendingReload = false;
+            const editingNow = () => {
+              const el = document.activeElement as HTMLElement | null;
+              return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA"].includes(el.tagName));
+            };
+            const reloadWhenSafe = () => {
+              if (!pendingReload) return;
+              if (document.visibilityState === "hidden" || !editingNow()) window.location.reload();
+            };
+            reg.addEventListener("updatefound", () => {
+              const fresh = reg.installing;
+              fresh?.addEventListener("statechange", () => {
+                if (fresh.state === "installed" && navigator.serviceWorker.controller) {
+                  pendingReload = true;
+                  reloadWhenSafe();
+                }
+              });
+            });
+            document.addEventListener("focusout", () => setTimeout(reloadWhenSafe, 250));
+            // check on resume, not just on first load; and if an update is
+            // already waiting, going away is the safest time to apply it
+            document.addEventListener("visibilitychange", () => {
+              if (document.visibilityState === "visible") void reg.update();
+              else reloadWhenSafe();
+            });
+          })
+          .catch((err) => {
+            console.warn("Service worker registration failed:", err);
+          });
       } else {
         // Dev: the SW's cache-first _next/static strategy serves STALE chunks
         // (dev chunks aren't content-hashed). Unregister + purge so dev

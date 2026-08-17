@@ -2,7 +2,14 @@ import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/lib/db/db";
 import type { GEvent } from "./api";
-import { importYear, purgeMoonPhaseDuplicates, setGoogleCalendarIds } from "./import";
+import {
+  deleteEventsFromCalendars,
+  findImportedByTitle,
+  importYear,
+  isMoonPhaseTitle,
+  purgeMoonPhaseDuplicates,
+  setGoogleCalendarIds,
+} from "./import";
 
 const PLANNER_ID = "p1";
 
@@ -47,13 +54,19 @@ function routes(events: GEvent[], birthdays: GEvent[], calendars?: unknown): [st
   ];
 }
 
+/** Fixed "today": reminder expiry is date-sensitive, so pinning it keeps
+ *  these tests from silently breaking as real time passes the fixtures. */
+const TODAY = "2026-07-01";
+const runImport = (f: ReturnType<typeof routeFetch>) =>
+  importYear(PLANNER_ID, 2026, "tok", f, TODAY);
+
 beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()));
 });
 
 describe("derived notices (Jo: reminders shown on the day they fire)", () => {
   it("creates a display chip on the trigger day for reminders ≥ 24h only", async () => {
-    const r = await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
+    const r = await runImport(routeFetch(routes([DENTIST_3D], [])));
     expect(r.notices).toBe(1);
     const notice = (await db.events.toArray()).find((e) => e.kind === "notice")!;
     expect(notice).toMatchObject({
@@ -67,22 +80,32 @@ describe("derived notices (Jo: reminders shown on the day they fire)", () => {
     expect(parent?.reminderOverridesMin).toEqual([3 * 1440]);
   });
 
-  it("gives every Google birthday 1-week and 2-week lead chips", async () => {
-    await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([], [BIRTHDAY])));
-    const leads = (await db.events.toArray())
-      .filter((e) => e.noticeKind === "birthday-lead")
-      .sort((a, b) => a.date.localeCompare(b.date));
-    expect(leads.map((l) => l.date)).toEqual(["2026-07-07", "2026-07-14"]);
-    expect(leads[0].leadLabel).toBe("🎂 Mom's birthday in 2 wk");
-    expect(leads[1].leadLabel).toBe("🎂 Mom's birthday in 1 wk");
+  it("no longer invents its own birthday leads — Jo's Google notifications own that (r12)", async () => {
+    await runImport(routeFetch(routes([], [BIRTHDAY])));
+    const leads = (await db.events.toArray()).filter((e) => e.noticeKind === "birthday-lead");
+    expect(leads).toEqual([]);
+    // the birthday itself still imports
+    expect(await db.events.where("googleId").equals("bday_mom").count()).toBe(1);
+  });
+
+  it("skips reminders whose event has already passed (r12)", async () => {
+    // TODAY is 2026-07-01; this event is in June with a 3-day reminder
+    const past: GEvent = {
+      ...DENTIST_3D,
+      id: "ev_past",
+      start: { dateTime: "2026-06-20T14:00:00-05:00" },
+      end: { dateTime: "2026-06-20T15:00:00-05:00" },
+    };
+    const r = await runImport(routeFetch(routes([past], [])));
+    expect(r.notices).toBe(0);
   });
 
   it("regenerates idempotently — double sync never duplicates notices", async () => {
     const f = () => routeFetch(routes([DENTIST_3D], [BIRTHDAY]));
-    await importYear(PLANNER_ID, 2026, "tok", f());
-    await importYear(PLANNER_ID, 2026, "tok", f());
+    await runImport(f());
+    await runImport(f());
     const notices = (await db.events.toArray()).filter((e) => e.kind === "notice");
-    expect(notices.length).toBe(3); // 1 reminder + 2 birthday leads
+    expect(notices.length).toBe(1); // the dentist's 3-day reminder, nothing else
   });
 
   it("skips reminders that fire in the SAME Mon–Sun week as their event (Jo r11)", async () => {
@@ -100,29 +123,82 @@ describe("derived notices (Jo: reminders shown on the day they fire)", () => {
         ],
       },
     };
-    const r = await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([friday], [])));
+    const r = await runImport(routeFetch(routes([friday], [])));
     expect(r.notices).toBe(1);
     const notice = (await db.events.toArray()).find((e) => e.kind === "notice")!;
     expect(notice.date).toBe("2026-07-17");
   });
 
   it("preserves the done-checkmark across re-imports and stops its reminders", async () => {
-    await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
+    await runImport(routeFetch(routes([DENTIST_3D], [])));
     const ev = (await db.events.where("googleId").equals("ev_dentist").first())!;
     await db.events.put({ ...ev, done: true });
-    const r = await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
+    const r = await runImport(routeFetch(routes([DENTIST_3D], [])));
     const after = await db.events.where("googleId").equals("ev_dentist").first();
     expect(after?.done).toBe(true); // survives the upsert
     expect(r.notices).toBe(0); // done items need no reminding
   });
 
   it("keeps a dragged chip position across re-imports", async () => {
-    await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
+    await runImport(routeFetch(routes([DENTIST_3D], [])));
     const ev = (await db.events.where("googleId").equals("ev_dentist").first())!;
     await db.events.put({ ...ev, offsetX: 40, offsetY: 60 });
-    await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes([DENTIST_3D], [])));
+    await runImport(routeFetch(routes([DENTIST_3D], [])));
     const after = await db.events.where("googleId").equals("ev_dentist").first();
     expect(after).toMatchObject({ offsetX: 40, offsetY: 60 });
+  });
+});
+
+describe("moon-phase title matching (r12: two prior fixes missed real formats)", () => {
+  it("recognizes the forms Google calendars actually use", () => {
+    for (const t of [
+      "Full Moon",
+      "Full moon",
+      "full moon",
+      "🌕 Full moon",
+      "New Moon",
+      "First Quarter",
+      "Third Quarter",
+      "Last Quarter Moon",
+      "Full Moon 3:12 AM", // clock time in the title
+      "Full Moon (Wolf Moon)", // monthly nickname
+      "Waxing Gibbous", // daily-phase calendars
+      "Full Moon", // non-breaking space
+    ]) {
+      expect(isMoonPhaseTitle(t), t).toBe(true);
+    }
+  });
+
+  it("leaves Jo's own events alone", () => {
+    for (const t of ["Full Moon party", "Moonlight dinner", "New Moon Yoga class", "", null]) {
+      expect(isMoonPhaseTitle(t), String(t)).toBe(false);
+    }
+  });
+});
+
+describe("removing imported items by calendar and by name (r12)", () => {
+  beforeEach(async () => {
+    await db.events.bulkAdd([
+      {
+        id: "c1", plannerId: PLANNER_ID, googleId: "g1", calendarId: "moon@group.calendar.google.com",
+        kind: "event", title: "Waning Crescent", date: "2026-07-02", allDay: true, updatedAt: 1,
+      },
+      {
+        id: "c2", plannerId: PLANNER_ID, googleId: "g2", calendarId: "work@group.calendar.google.com",
+        kind: "event", title: "Standup", date: "2026-07-02", allDay: true, updatedAt: 1,
+      },
+    ]);
+  });
+
+  it("unchecking a calendar removes exactly its items", async () => {
+    const n = await deleteEventsFromCalendars(PLANNER_ID, ["moon@group.calendar.google.com"]);
+    expect(n).toBe(1);
+    expect((await db.events.toArray()).map((e) => e.title)).toEqual(["Standup"]);
+  });
+
+  it("name search finds imported rows whatever the phase wording", async () => {
+    const hits = await findImportedByTitle(PLANNER_ID, "crescent");
+    expect(hits.map((e) => e.id)).toEqual(["c1"]);
   });
 });
 
@@ -174,7 +250,7 @@ describe("moon-phase cleanup + calendar checklist", () => {
       ["/calendars/work@group.calendar.google.com/events", { items: [DENTIST_3D] }],
       ["/users/@me/lists", { items: [] }],
     ]);
-    const r = await importYear(PLANNER_ID, 2026, "tok", f);
+    const r = await runImport(f);
     expect(r.calendars).toBe(1); // only the checked calendar
     expect(await db.events.where("googleId").equals("ev_dentist").count()).toBe(1);
   });

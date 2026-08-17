@@ -4,11 +4,15 @@ import { useEffect, useState } from "react";
 import { getAccessToken, googleClientId } from "@/lib/google/auth";
 import { insertEvent, listCalendars, type GCalendar } from "@/lib/google/api";
 import {
+  deleteEvents,
+  deleteEventsFromCalendars,
+  findImportedByTitle,
   getGoogleCalendarIds,
   importYear,
   setGoogleCalendarIds,
   type ImportResult,
 } from "@/lib/google/import";
+import type { PlannerEvent } from "@/lib/db/types";
 import {
   getAutoSyncInterval,
   lastAutoSyncAt,
@@ -32,6 +36,7 @@ function importSummary(r: ImportResult): string {
       r.notices ? `, ${r.notices} reminder chips` : ""
     }).`,
   ];
+  if (r.moonPurged) parts.push(`Removed ${r.moonPurged} moon-phase item(s).`);
   if (r.warnings.length > 0) parts.push(`⚠ ${r.warnings.join(" ")}`);
   return parts.join(" ");
 }
@@ -52,6 +57,11 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
   const [calendars, setCalendars] = useState<GCalendar[] | null>(null);
   const [chosenIds, setChosenIds] = useState<string[] | null>(null);
   const [calBusy, setCalBusy] = useState(false);
+  // Manual cleanup (Jo r12): pattern-matching a calendar's title style is a
+  // guess, so let her SEE what would go and press the button herself.
+  const [cleanupTerm, setCleanupTerm] = useState("moon");
+  const [cleanupHits, setCleanupHits] = useState<PlannerEvent[] | null>(null);
+  const [cleanupConfirm, setCleanupConfirm] = useState(false);
 
   // Lazy-loaded on demand — opening settings must never pop a Google window.
   const loadCalendars = async () => {
@@ -71,9 +81,28 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
 
   const toggleCalendar = (id: string) => {
     if (!chosenIds) return;
-    const next = chosenIds.includes(id) ? chosenIds.filter((c) => c !== id) : [...chosenIds, id];
+    const removing = chosenIds.includes(id);
+    const next = removing ? chosenIds.filter((c) => c !== id) : [...chosenIds, id];
     setChosenIds(next);
     void setGoogleCalendarIds(plannerId, next);
+    // Unchecking now REMOVES that calendar's items instead of leaving them
+    // stranded on the pages forever (Jo r12).
+    if (removing) {
+      void deleteEventsFromCalendars(plannerId, [id]).then((n) => {
+        setStatus(
+          n > 0
+            ? `Removed ${n} item(s) that came from that calendar.`
+            : // Rows imported before this update carry no calendar tag; one
+              // sync re-tags them, or she can clear them by name right here.
+              "That calendar won't import again. Anything it added earlier can be cleared with “Remove imported items by name” below (or sync once, then uncheck it again)."
+        );
+      });
+    }
+  };
+
+  const runCleanupSearch = async () => {
+    setCleanupConfirm(false);
+    setCleanupHits(await findImportedByTitle(plannerId, cleanupTerm));
   };
 
   useEffect(() => {
@@ -207,11 +236,83 @@ export default function GooglePanel({ plannerId, year }: { plannerId: string; ye
                   </label>
                 ))}
               </div>
-              <p className="mt-1 text-xs text-slate-500">Takes effect on the next sync.</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Unchecking a calendar stops it importing and removes the items
+                it added (items from before this update clear after one sync).
+              </p>
             </>
           )}
         </div>
       )}
+      {/* Manual cleanup: works whatever a calendar names its events, and
+          shows Jo exactly what it found before anything is deleted (r12). */}
+      <div className="mb-3" data-cleanup-imported>
+        <p className="mb-1 text-xs font-semibold text-slate-600">
+          Remove imported items by name
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <input
+            value={cleanupTerm}
+            onChange={(e) => {
+              setCleanupTerm(e.target.value);
+              setCleanupHits(null);
+            }}
+            data-input="cleanup-term"
+            placeholder="moon"
+            className="w-32 rounded border border-slate-300 px-2 py-1 text-sm"
+          />
+          <button
+            data-action="cleanup-find"
+            onClick={() => void runCleanupSearch()}
+            className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Find
+          </button>
+          {cleanupHits && cleanupHits.length > 0 && !cleanupConfirm && (
+            <button
+              data-action="cleanup-delete"
+              onClick={() => setCleanupConfirm(true)}
+              className="rounded bg-red-600 px-2 py-1 text-xs font-semibold text-white"
+            >
+              Delete {cleanupHits.length}
+            </button>
+          )}
+          {cleanupHits && cleanupHits.length > 0 && cleanupConfirm && (
+            <>
+              {/* deleting events isn't undoable, and a name search can match a
+                  real event ("Full Moon party") — so confirm, like elsewhere */}
+              <button
+                data-action="cleanup-delete-confirm"
+                onClick={() =>
+                  void deleteEvents(cleanupHits.map((e) => e.id)).then((n) => {
+                    setStatus(`Removed ${n} imported item(s).`);
+                    setCleanupHits([]);
+                    setCleanupConfirm(false);
+                  })
+                }
+                className="rounded bg-red-600 px-2 py-1 text-xs font-bold text-white"
+              >
+                Delete {cleanupHits.length} for good
+              </button>
+              <button
+                className="text-xs text-slate-500 underline"
+                onClick={() => setCleanupConfirm(false)}
+              >
+                Keep
+              </button>
+            </>
+          )}
+        </div>
+        {cleanupHits && (
+          <p className="mt-1 text-xs text-slate-500" data-cleanup-result>
+            {cleanupHits.length === 0
+              ? "Nothing imported matches that word."
+              : `Will delete: ${[...new Set(cleanupHits.map((e) => e.title))].slice(0, 6).join(", ")}${
+                  cleanupHits.length > 6 ? " …" : ""
+                }`}
+          </p>
+        )}
+      </div>
       <form onSubmit={createEvent} className="space-y-1.5">
         <p className="text-xs font-semibold text-slate-600">New Google event (+ invite a contact)</p>
         <input

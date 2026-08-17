@@ -5,6 +5,14 @@ import { db } from "@/lib/db/db";
 import { addDays, fromISO, toISO } from "@/lib/planner/dates";
 import { usePlannerUI } from "./ui-context";
 
+/** A reminder outlives its usefulness the moment its event has happened
+ *  (Jo r12). Checked at render so it disappears on the day even if the next
+ *  Google sync is days away; rows imported before r12 carry no parentDate,
+ *  so they fall back to their own date. */
+function stillPending(n: { parentDate?: string; date: string }, todayISO: string): boolean {
+  return (n.parentDate ?? n.date) >= todayISO;
+}
+
 /**
  * The week's 🔔 notification + 🎂 birthday-lead chips, gathered into the
  * REMINDERS panel (Jo: in line with the color chip, wrapping as needed).
@@ -21,10 +29,12 @@ export default function WeekReminders({ weekStartISO }: { weekStartISO: string }
         .toArray(),
     [plannerId, weekStartISO, weekEndISO]
   );
-  if (!notices || notices.length === 0) return null;
+  const todayISO = toISO(new Date());
+  const pending = (notices ?? []).filter((n) => stillPending(n, todayISO));
+  if (pending.length === 0) return null;
   return (
     <>
-      {[...notices]
+      {pending
         .sort((a, b) => a.date.localeCompare(b.date))
         .map((n) => (
           <span

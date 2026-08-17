@@ -142,8 +142,9 @@ describe("addBlankPage (add pages willy-nilly)", () => {
   it("inserts a named blank section page right after the anchor, shifting the rest", async () => {
     const pages = await db.pages.toArray();
     const wk = pages.find((p) => p.dateStart === "2026-07-06")!;
-    const page = await addBlankPage(wk.id, "gift ideas");
-    expect(page).toMatchObject({ type: "section", label: "GIFT IDEAS", index: wk.index + 1 });
+    const page = await addBlankPage(wk.id, "Gift Ideas");
+    // r12: her capitalization is kept — titles are typed on the page now
+    expect(page).toMatchObject({ type: "section", label: "Gift Ideas", index: wk.index + 1 });
     const all = (await db.pages.toArray()).sort((a, b) => a.index - b.index);
     expect(all).toHaveLength(80);
     expect(all.map((p) => p.index)).toEqual(all.map((_, i) => i));

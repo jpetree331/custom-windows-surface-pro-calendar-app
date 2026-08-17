@@ -1,5 +1,6 @@
 import { db } from "@/lib/db/db";
 import type { Block } from "@/lib/db/types";
+import { purgeMoonPhaseDuplicates } from "@/lib/google/import";
 
 /**
  * Full-planner backup: every table serialized to one JSON file (image blobs
@@ -122,6 +123,9 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
       await put("notes", db.notes, data.tables.notes ?? []);
     }
   );
+  // A snapshot taken before Jo unsubscribed would otherwise re-import her
+  // moon-phase chips wholesale (Jo r12).
+  for (const p of await db.planners.toArray()) await purgeMoonPhaseDuplicates(p.id);
   return { restored };
 }
 

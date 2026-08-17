@@ -12,7 +12,14 @@ export interface WinRect {
 }
 
 export function useViewportSize() {
-  const [size, setSize] = useState({ w: 1024, h: 768 });
+  // Lazy-init from the REAL viewport: a placeholder default meant a note
+  // could adopt its canvas width (Note.pageW) from a 1024×768 guess on the
+  // very first measurement and keep it forever (Jo r12 review).
+  const [size, setSize] = useState(() =>
+    typeof window === "undefined"
+      ? { w: 1024, h: 768 }
+      : { w: window.innerWidth, h: window.innerHeight }
+  );
   useEffect(() => {
     const read = () => setSize({ w: window.innerWidth, h: window.innerHeight });
     read();

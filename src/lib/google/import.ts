@@ -1,13 +1,12 @@
 import { db } from "@/lib/db/db";
 import type { PlannerEvent } from "@/lib/db/types";
 import { queueSync } from "@/lib/sync";
-import { MOON_NAMES } from "@/lib/calendar/moon";
 import { addDays, fromISO, mondayOf as mondayOfDate, toISO } from "@/lib/planner/dates";
 import { listCalendars, listInstances, type FetchLike, type GEvent } from "./api";
 import { listAllTasks } from "./tasks";
 
 /** Map one Google event instance to a planner event row. */
-export function mapGoogleEvent(plannerId: string, g: GEvent): PlannerEvent | null {
+export function mapGoogleEvent(plannerId: string, g: GEvent, calendarId?: string): PlannerEvent | null {
   if (g.status === "cancelled") return null;
   const startDate = g.start?.date ?? g.start?.dateTime?.slice(0, 10);
   if (!startDate) return null;
@@ -28,6 +27,7 @@ export function mapGoogleEvent(plannerId: string, g: GEvent): PlannerEvent | nul
     endTime: allDay ? undefined : g.end?.dateTime?.slice(11, 16),
     allDay,
     rrule: g.recurringEventId ? `instance-of:${g.recurringEventId}` : undefined,
+    calendarId,
     description: g.description,
     location: g.location,
     reminderOverridesMin: reminderMins.length ? reminderMins : undefined,
@@ -53,33 +53,102 @@ export async function getGoogleCalendarIds(plannerId: string): Promise<string[] 
 }
 
 /**
+ * Normalize a Google title for phase matching: drop parentheticals
+ * ("(Wolf Moon)"), clock times ("3:12 AM"), percentages, emoji and any other
+ * non-letters, then collapse whitespace. Unicode spaces become real spaces
+ * BEFORE stripping, or "Full Moon" would collapse to "fullmoon".
+ */
+function normalizeTitle(raw: unknown): string {
+  return String(raw ?? "")
+    .toLowerCase()
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\b\d{1,2}:\d{2}\s*[ap]\.?m?\.?\b/g, " ")
+    .replace(/\d+\s*%/g, " ")
+    .replace(/\s+/gu, " ")
+    .replace(/[^a-z ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Phase names, with or without a trailing "moon"/"phase" word. Broader than
+ * MOON_NAMES in src/lib/calendar/moon.ts (our own glyph vocabulary, the four
+ * principal phases) because subscribed calendars also post the intermediate
+ * phases — this regex is the authority for "is this an imported phase row".
+ */
+const MOON_TITLE_RE =
+  /^(new|full|first quarter|second quarter|third quarter|last quarter|waxing crescent|waning crescent|waxing gibbous|waning gibbous)( moon)?( phase)?$/;
+
+export function isMoonPhaseTitle(raw: unknown): boolean {
+  const t = normalizeTitle(raw);
+  return !!t && MOON_TITLE_RE.test(t);
+}
+
+/**
  * Purge moon-phase TEXT events that arrived from a subscribed "Phases of the
- * Moon" Google calendar (Jo: they duplicate our computed glyphs). Runs on
- * every import — idempotent, self-healing if the calendar sneaks back in.
+ * Moon" Google calendar (they duplicate our computed glyphs). Runs at app
+ * launch AND on both sides of an import — an import used to re-add them
+ * moments after purging, which is why syncing never seemed to help (Jo r12).
+ * Never throws: a malformed row must not silently kill the whole sweep.
  */
 export async function purgeMoonPhaseDuplicates(plannerId: string): Promise<number> {
-  // Normalized exact match: lowercase, strip emoji/punctuation. Covers
-  // Google's actual casing ("Full moon") plus glyph-prefixed variants, while
-  // never touching a real event like "Full Moon party" (extra words fail the
-  // exact match). r11 also runs this at app launch — a lapsed sync token had
-  // kept the only caller (importYear) from ever firing for Jo.
-  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
-  const moonTitles = new Set([
-    ...(MOON_NAMES as readonly string[]).map(normalize),
-    "third quarter",
-    "first quarter moon",
-    "last quarter moon",
-    "third quarter moon",
-  ]);
-  const stale = await db.events
-    .where("plannerId").equals(plannerId)
-    .and((e) => !!e.googleId && moonTitles.has(normalize(e.title)))
-    .toArray();
-  if (stale.length) {
-    await db.events.bulkDelete(stale.map((e) => e.id));
-    for (const e of stale) await queueSync("events", e.id, "delete");
+  try {
+    const stale = await db.events
+      .where("plannerId").equals(plannerId)
+      .and((e) => !!e.googleId && isMoonPhaseTitle(e.title))
+      .toArray();
+    if (stale.length) {
+      await db.events.bulkDelete(stale.map((e) => e.id));
+      for (const e of stale) await queueSync("events", e.id, "delete");
+    }
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(
+        "jotter.lastMoonPurge",
+        JSON.stringify({ at: Date.now(), deleted: stale.length })
+      );
+    }
+    return stale.length;
+  } catch (err) {
+    console.error("purgeMoonPhaseDuplicates failed", err);
+    return 0;
   }
-  return stale.length;
+}
+
+/** Imported rows whose title contains `needle` — powers the Settings
+ *  "remove imported items" cleanup, which works whatever the titles look
+ *  like (no guessing about a calendar's naming style). */
+export async function findImportedByTitle(
+  plannerId: string,
+  needle: string
+): Promise<PlannerEvent[]> {
+  const q = needle.trim().toLowerCase();
+  if (!q) return [];
+  return db.events
+    .where("plannerId").equals(plannerId)
+    .and((e) => !!e.googleId && String(e.title ?? "").toLowerCase().includes(q))
+    .toArray();
+}
+
+/** Delete imported rows that came from these Google calendars — what
+ *  unchecking a calendar in the settings list should actually do. */
+export async function deleteEventsFromCalendars(
+  plannerId: string,
+  calendarIds: string[]
+): Promise<number> {
+  if (calendarIds.length === 0) return 0;
+  const set = new Set(calendarIds);
+  const rows = await db.events
+    .where("plannerId").equals(plannerId)
+    .and((e) => !!e.calendarId && set.has(e.calendarId))
+    .toArray();
+  return deleteEvents(rows.map((e) => e.id));
+}
+
+export async function deleteEvents(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  await db.events.bulkDelete(ids);
+  for (const id of ids) await queueSync("events", id, "delete");
+  return ids.length;
 }
 
 const addDaysISO = (iso: string, days: number) => toISO(addDays(fromISO(iso), days));
@@ -102,6 +171,7 @@ function makeNotice(
     date,
     allDay: true,
     sourceEventId: parent.id,
+    parentDate: parent.date,
     noticeKind,
     leadLabel,
     categoryId: parent.categoryId,
@@ -110,25 +180,24 @@ function makeNotice(
 }
 
 /**
- * Derived display rows: 🔔 chips on the day a Google notification fires
- * (display-only — the app can't ring), and 🎂 1-week/2-week leads for each
- * Google birthday. Wiped and rebuilt every import so they always match
- * Google — never diffed, never draggable, never counted as imports.
+ * Derived display rows: 🔔 chips on the day one of Jo's Google notifications
+ * fires (display-only — the app can't ring). Wiped and rebuilt every import
+ * so they always match Google — never diffed, never draggable, never counted
+ * as imports.
+ *
+ * r12: the app no longer invents its own 1-week/2-week birthday leads — Jo
+ * sets those as Google notifications herself, and generating both doubled
+ * every chip. Reminders for events that have already happened aren't
+ * generated either (see also the render-time guard for un-synced days).
  */
-export async function regenerateNotices(plannerId: string): Promise<number> {
+export async function regenerateNotices(plannerId: string, todayISO = toISO(new Date())): Promise<number> {
   const events = await db.events.where("plannerId").equals(plannerId).toArray();
   const stale = events.filter((e) => e.kind === "notice");
   const notices: PlannerEvent[] = [];
   for (const p of events) {
     if (p.kind === "notice") continue;
     if (p.done) continue; // checked-off items need no reminding (Jo r11)
-    if (p.kind === "birthday") {
-      for (const [weeks, label] of [[2, "2 wk"], [1, "1 wk"]] as const) {
-        notices.push(
-          makeNotice(plannerId, p, addDaysISO(p.date, -weeks * 7), "birthday-lead", `🎂 ${p.title} in ${label}`)
-        );
-      }
-    }
+    if (p.date < todayISO) continue; // the event has passed (Jo r12)
     for (const min of p.reminderOverridesMin ?? []) {
       const days = Math.round(min / 1440);
       const fireDate = addDaysISO(p.date, -days);
@@ -190,8 +259,10 @@ export interface ImportResult {
   calendars: number;
   /** how many Google Tasks came in */
   tasks: number;
-  /** derived reminder/birthday-lead chips regenerated this run */
+  /** derived reminder chips regenerated this run */
   notices: number;
+  /** moon-phase rows removed this run (0 is the healthy steady state) */
+  moonPurged: number;
   warnings: string[];
 }
 
@@ -206,7 +277,10 @@ export async function importYear(
   plannerId: string,
   year: number,
   token: string,
-  fetchImpl: FetchLike = fetch
+  fetchImpl: FetchLike = fetch,
+  /** "today" for reminder expiry — injectable so tests don't drift with the
+   *  wall clock (they broke the day real time passed their fixtures). */
+  todayISO = toISO(new Date())
 ): Promise<ImportResult> {
   const timeMin = new Date(year - 1, 11, 28).toISOString();
   const timeMax = new Date(year + 1, 0, 4).toISOString();
@@ -224,6 +298,12 @@ export async function importYear(
       ? all.filter((c) => chosenIds.includes(c.id))
       : all.filter((c) => c.primary || c.selected);
     if (chosen.length > 0) calendarIds = chosen.map((c) => c.id);
+    // Forget saved calendars that no longer exist on the account: an
+    // unsubscribed calendar must not linger in Jo's checklist forever.
+    if (chosenIds) {
+      const live = chosenIds.filter((id) => all.some((c) => c.id === id));
+      if (live.length !== chosenIds.length) await setGoogleCalendarIds(plannerId, live);
+    }
   } catch {
     warnings.push(
       "Only your main calendar was checked — disconnect & reconnect Google to allow reading your other calendars."
@@ -231,22 +311,30 @@ export async function importYear(
   }
 
   const perCalendar = await Promise.all(
-    calendarIds.map((calendarId) =>
-      listInstances(token, { calendarId, timeMin, timeMax, eventTypes: ["default", "fromGmail"] }, fetchImpl).catch(
-        () => {
-          warnings.push(`Calendar "${calendarId}" could not be read.`);
-          return [] as GEvent[];
-        }
-      )
-    )
+    calendarIds.map(async (calendarId) => ({
+      calendarId,
+      events: await listInstances(
+        token,
+        { calendarId, timeMin, timeMax, eventTypes: ["default", "fromGmail"] },
+        fetchImpl
+      ).catch(() => {
+        warnings.push(`Calendar "${calendarId}" could not be read.`);
+        return [] as GEvent[];
+      }),
+    }))
   );
   const birthdays = await listInstances(token, { timeMin, timeMax, eventTypes: ["birthday"] }, fetchImpl).catch(
     () => [] as GEvent[]
   );
 
-  const rows = [...perCalendar.flat(), ...birthdays]
-    .map((g) => mapGoogleEvent(plannerId, g))
-    .filter((r): r is PlannerEvent => r !== null);
+  // each row remembers its source calendar (Jo r12) so unchecking a calendar
+  // can remove exactly its items instead of pattern-matching titles
+  const rows = [
+    ...perCalendar.flatMap(({ calendarId, events }) =>
+      events.map((g) => mapGoogleEvent(plannerId, g, calendarId))
+    ),
+    ...birthdays.map((g) => mapGoogleEvent(plannerId, g, "birthdays")),
+  ].filter((r): r is PlannerEvent => r !== null);
 
   // Google Tasks → To-Do items on their due dates.
   let taskCount = 0;
@@ -276,6 +364,19 @@ export async function importYear(
   }
 
   const { added, updated } = await upsertEvents(rows);
-  const notices = await regenerateNotices(plannerId);
-  return { added, updated, total: rows.length, calendars: calendarIds.length, tasks: taskCount, notices, warnings };
+  // AGAIN, after the upsert: purging only up front let a still-subscribed
+  // moon calendar re-add every chip in the same sync — which is exactly why
+  // syncing repeatedly never cleaned them up (Jo r12).
+  const moonPurged = await purgeMoonPhaseDuplicates(plannerId);
+  const notices = await regenerateNotices(plannerId, todayISO);
+  return {
+    added,
+    updated,
+    total: rows.length,
+    calendars: calendarIds.length,
+    tasks: taskCount,
+    notices,
+    moonPurged,
+    warnings,
+  };
 }

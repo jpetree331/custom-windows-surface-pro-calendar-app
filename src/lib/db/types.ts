@@ -120,8 +120,14 @@ export interface PlannerEvent {
   /** Chip drag position, % of the day cell (undefined = normal flow). */
   offsetX?: number;
   offsetY?: number;
+  /** Google calendar this row was imported from — lets "uncheck a calendar"
+   *  actually remove its items instead of guessing from titles (Jo r12). */
+  calendarId?: string;
   /** notice rows only: the event/birthday this was derived from. */
   sourceEventId?: string;
+  /** notice rows only: the parent event's date, so a reminder can disappear
+   *  once the event itself has passed without re-querying the parent. */
+  parentDate?: string;
   noticeKind?: "event-reminder" | "birthday-lead";
   /** notice rows only: precomputed label ("🔔 Dentist (in 3d)"). */
   leadLabel?: string;
@@ -158,6 +164,10 @@ export interface Note {
   open: boolean;
   /** Manual position for the "Custom" sort in the Notes menu. */
   order?: number;
+  /** Writing surface width in CSS px at 1× (Jo r12): the note page is a
+   *  fixed canvas the window looks at, so rotating the tablet never
+   *  rescales her handwriting. Undefined = adopt the window's width once. */
+  pageW?: number;
   createdAt: number;
   updatedAt: number;
 }

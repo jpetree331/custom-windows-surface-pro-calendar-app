@@ -512,7 +512,7 @@ export async function addBlankPage(afterPageId: string, label: string): Promise<
     plannerId: anchor.plannerId,
     type: "section",
     index: anchor.index + 1,
-    label: label.trim().toUpperCase() || "NOTES",
+    label: label.trim() || "NOTES", // her capitalization, kept (Jo r12)
     monthIndex: -1,
     dateStart: "",
     dateEnd: "",
@@ -531,10 +531,33 @@ export async function addBlankPage(afterPageId: string, label: string): Promise<
   return page;
 }
 
-/** Rename a custom page. Uppercased like every other page label; not
- *  undoable, matching habit/category renames in settings. */
+/**
+ * Paste whichever internal clipboard is loaded (an ⬚ selection wins over a
+ * single copied item), centered on `pageId`. One place decides that order so
+ * the keyboard path and the notes' right-click menu can't drift apart.
+ */
+export async function pasteAnyClipboardCentered(
+  pageId: string,
+  x = PAGE_W / 2,
+  y = PAGE_H / 2
+): Promise<
+  { kind: "selection"; selection: AreaSelectionRef & { rect: { x: number; y: number; w: number; h: number } } }
+  | { kind: "block"; block: Block }
+  | null
+> {
+  if (hasSelectionClipboard()) {
+    const selection = await pasteSelectionAt(pageId, x, y);
+    return selection ? { kind: "selection", selection } : null;
+  }
+  const block = await pasteClipboardBlock(pageId);
+  return block ? { kind: "block", block } : null;
+}
+
+/** Rename a page. Keeps her capitalization now that titles are typed
+ *  directly on the page (Jo r12); not undoable, matching habit/category
+ *  renames in settings. */
 export async function renamePage(pageId: string, label: string) {
-  const clean = label.trim().toUpperCase();
+  const clean = label.trim();
   if (!clean) return;
   await db.pages.update(pageId, { label: clean, updatedAt: Date.now() });
   await queueSync("pages", pageId, "put");

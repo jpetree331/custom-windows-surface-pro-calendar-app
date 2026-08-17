@@ -25,6 +25,7 @@ import {
   hasSelectionClipboard,
   makeImageBlock,
   makeTextBlock,
+  pasteAnyClipboardCentered,
   pasteClipboardBlock,
   pastePageAfter,
   pasteSelectionAt,
@@ -42,6 +43,7 @@ import NotepadManager from "./notepad/NotepadManager";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
 import SideButtons from "./SideButtons";
+import SideButtonEditor from "./SideButtonEditor";
 import Toolbar from "./Toolbar";
 import InkCanvas from "./InkCanvas";
 import BlocksLayer from "./BlocksLayer";
@@ -83,6 +85,7 @@ export default function PlannerShell() {
   const [addPageSideBtn, setAddPageSideBtn] = useState(false);
   const [manageFocus, setManageFocus] = useState<"side-buttons" | null>(null);
   const [notepadMenu, setNotepadMenu] = useState<{ top: number; right: number } | null>(null);
+  const [buttonEditor, setButtonEditor] = useState<{ top: number; right: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ pageId: string; label: string } | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const imageFileRef = useRef<HTMLInputElement>(null);
@@ -442,7 +445,7 @@ export default function PlannerShell() {
 
   const pasteImage = useCallback(
     async (blob: Blob, target?: { pageId: string; x: number; y: number }) => {
-      const pageId = target?.pageId ?? viewportCenterPageId();
+      const pageId = target?.pageId ?? activeNoteRef.current ?? viewportCenterPageId();
       if (!pageId) return;
       const block = await makeImageBlock(
         pageId, blob, target?.x ?? PAGE_W * 0.25, target?.y ?? PAGE_H * 0.3
@@ -463,10 +466,12 @@ export default function PlannerShell() {
   const activeNoteRef = useRef<string | null>(null);
 
   /** Paste the ⬚ clipboard onto the page in view, centered, and SELECT the
-   *  result so it's visibly there and immediately draggable. */
+   *  result so it's visibly there and immediately draggable. Honors a
+   *  focused note, so ink cut from a calendar page lands IN the note she's
+   *  looking at rather than the page behind it (Jo r12). */
   const pasteSelectionCentered = useCallback(async () => {
     if (!hasSelectionClipboard()) return false;
-    const pageId = viewportCenterPageId();
+    const pageId = activeNoteRef.current ?? viewportCenterPageId();
     if (!pageId) return false;
     const result = await pasteSelectionAt(pageId, PAGE_W / 2, PAGE_H / 2);
     if (result) setSelection(result);
@@ -504,7 +509,7 @@ export default function PlannerShell() {
       }
       const text = e.clipboardData?.getData("text/plain") ?? "";
       const internal = getClipboardBlock();
-      const pageId = viewportCenterPageId();
+      const pageId = activeNoteRef.current ?? viewportCenterPageId();
       if (!pageId) return;
       e.preventDefault();
       // Fresh OS-clipboard text wins over a previously copied block — unless the
@@ -535,9 +540,28 @@ export default function PlannerShell() {
       return true;
     };
 
+    /** Text the user has actually highlighted in a contenteditable — then
+     *  the browser's own copy/cut must win. */
+    const textHighlighted = () => {
+      const s = window.getSelection();
+      return !!s && !s.isCollapsed && s.toString().length > 0;
+    };
+
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping()) return;
       const sel = selectionRef.current;
+      const appSel = sel || selectedBlockIdRef.current;
+      // A note opens with its body text box focused (r11), so "typing" was
+      // swallowing Ctrl+C/X for a marquee selection made inside that note
+      // (Jo r12). Copy/cut may proceed ONLY when the focus is a
+      // contenteditable (never a form field — window.getSelection() can't
+      // see an <input>'s highlight, so we'd cut a stale block while she was
+      // editing a title), something is selected in the app, and no text is
+      // highlighted. Paste stays hands-off so a real text paste is never
+      // hijacked; notes offer right-click → Paste instead.
+      const el = document.activeElement as HTMLElement | null;
+      const inFormField = !!el && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
+      const copyKey = e.ctrlKey && ["c", "x"].includes(e.key.toLowerCase());
+      if (isTyping() && !(copyKey && !inFormField && appSel && !textHighlighted())) return;
       if (e.ctrlKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
         void history.undo();
@@ -561,15 +585,14 @@ export default function PlannerShell() {
         // OS clipboard has content — cut ink lives in our INTERNAL clipboard,
         // so Ctrl+V did nothing. Handle internal paste on keydown; when we
         // don't, the native paste event still delivers OS images/text.
-        if (hasSelectionClipboard()) {
+        const pageId = activeNoteRef.current ?? viewportCenterPageId();
+        if (pageId && (hasSelectionClipboard() || getClipboardBlock())) {
           e.preventDefault();
-          void pasteSelectionCentered();
-        } else if (getClipboardBlock()) {
-          e.preventDefault();
-          const pageId = activeNoteRef.current ?? viewportCenterPageId();
-          if (pageId) {
-            void pasteClipboardBlock(pageId).then((b) => b && setSelectedBlockId(b.id));
-          }
+          void pasteAnyClipboardCentered(pageId).then((r) => {
+            if (!r) return;
+            if (r.kind === "selection") setSelection(r.selection);
+            else setSelectedBlockId(r.block.id);
+          });
         }
       } else if (e.key === "Escape") {
         setSelection(null);
@@ -705,6 +728,7 @@ export default function PlannerShell() {
               setManageFocus("side-buttons");
               setShowManage(true);
             }}
+            onOpenButtonEditor={setButtonEditor}
           />
           {viewSettings.layout === "single" ? (
             <SinglePageFeed
@@ -802,6 +826,37 @@ export default function PlannerShell() {
         </div>
         {/* floating Notepad windows — siblings of the feed, so its pan/pinch
             listeners never see their events */}
+        {buttonEditor && (
+          <>
+            <div
+              className="fixed inset-0 z-[3200] print:hidden"
+              data-side-editor-backdrop
+              onClick={() => setButtonEditor(null)}
+            />
+            <div
+              data-side-editor-popover
+              className="fixed z-[3210] max-h-[70vh] w-[26rem] max-w-[92vw] overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 shadow-xl print:hidden"
+              style={{
+                top: Math.min(buttonEditor.top, window.innerHeight - 320),
+                right: buttonEditor.right,
+              }}
+            >
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                  Side buttons
+                </span>
+                <button
+                  data-side-editor-close
+                  onClick={() => setButtonEditor(null)}
+                  className="rounded px-2 text-lg leading-none text-slate-500 hover:bg-slate-100"
+                >
+                  ×
+                </button>
+              </div>
+              <SideButtonEditor plannerId={planner.id} />
+            </div>
+          </>
+        )}
         <NotepadManager
           menuAnchor={notepadMenu}
           onMenuClose={() => setNotepadMenu(null)}

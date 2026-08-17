@@ -86,14 +86,15 @@ describe("importYear", () => {
     await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes));
     const r2 = await importYear(PLANNER_ID, 2026, "tok", routeFetch(routes));
     expect(r2).toMatchObject({ added: 0, updated: 5, total: 5 });
-    // 5 Google rows + 2 derived birthday-lead notices (regenerated, stable)
-    expect(await db.events.count()).toBe(7);
+    // 5 Google rows, no derived rows: r12 dropped the app's own birthday
+    // leads, and SINGLE's only reminder is 30 min (< 24h → never a chip)
+    expect(await db.events.count()).toBe(5);
     // title update flows through on re-import
     const renamed = { ...SINGLE, summary: "Dentist (moved)" };
     await importYear(PLANNER_ID, 2026, "tok", routeFetch(basicRoutes([renamed], [])));
     const row = await db.events.where("googleId").equals("single_1").first();
     expect(row?.title).toBe("Dentist (moved)");
-    expect(await db.events.count()).toBe(7);
+    expect(await db.events.count()).toBe(5);
   });
 
   it("imports appointments from SECONDARY calendars too (Jo's missing appointments)", async () => {

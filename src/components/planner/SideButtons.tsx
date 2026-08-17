@@ -14,6 +14,7 @@ export default function SideButtons({
   onJump,
   onOpenNotepad,
   onOpenSettings,
+  onOpenButtonEditor,
 }: {
   plannerId: string;
   onJump: (target: string) => void;
@@ -21,13 +22,16 @@ export default function SideButtons({
   onOpenNotepad: (anchor: { top: number; right: number }) => void;
   /** Right-click anywhere on the column → its settings section (Jo). */
   onOpenSettings: () => void;
+  /** ＋ under the last jump button → the button editor, without a trip
+   *  through Settings (Jo r12). */
+  onOpenButtonEditor: (anchor: { top: number; right: number }) => void;
 }) {
   const buttons =
     useLiveQuery(
       () => db.sideButtons.where("plannerId").equals(plannerId).sortBy("order"),
       [plannerId]
     ) ?? [];
-  const notepadAnchor = (el: HTMLElement) => {
+  const anchorFor = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
     return { top: r.top, right: window.innerWidth - r.left + 8 };
   };
@@ -64,13 +68,22 @@ export default function SideButtons({
           {b.glyph}
         </button>
       ))}
+      {/* ＋ sits under the last jump button, above Notes (Jo r12) */}
+      <button
+        data-side-button="add"
+        title="Add or edit these buttons"
+        onClick={(e) => onOpenButtonEditor(anchorFor(e.currentTarget))}
+        className="pointer-events-auto relative flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-white/70 bg-white/40 text-lg font-bold text-slate-700 shadow-sm active:scale-95"
+      >
+        ＋
+      </button>
       <button
         data-side-button="notepad"
         title="Notepad — floating notes you can type or write in"
-        onClick={(e) => onOpenNotepad(notepadAnchor(e.currentTarget))}
+        onClick={(e) => onOpenNotepad(anchorFor(e.currentTarget))}
         // hover opens the menu too (Jo) — pen hover fires pointerenter
         onPointerEnter={(e) => {
-          if (e.pointerType !== "touch") onOpenNotepad(notepadAnchor(e.currentTarget));
+          if (e.pointerType !== "touch") onOpenNotepad(anchorFor(e.currentTarget));
         }}
         className="pointer-events-auto relative mt-1 flex h-9 w-9 items-center justify-center rounded-md border border-white/60 bg-slate-700 text-lg text-white shadow-md active:scale-95"
       >

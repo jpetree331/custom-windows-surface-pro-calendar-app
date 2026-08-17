@@ -30,7 +30,9 @@ export default function EventChips({
   const rootRef = useRef<HTMLDivElement>(null);
   const events = useLiveQuery(
     // planner-scoped: a restored backup can leave a second same-year planner.
-    // Birthday-lead notices render in BirthdayReminders (bottom-right slot).
+    // "birthday-lead" rows are legacy (r12 stopped generating them; Jo's own
+    // Google notifications cover birthdays) — filtered out where they'd
+    // otherwise linger from an older import.
     () =>
       db.events
         .where("date")
