@@ -40,10 +40,27 @@ export async function ensureSideButtonsSeeded(plannerId: string) {
   for (const r of rows) await queueSync("sideButtons", r.id, "put");
 }
 
+/** Renumber a planner's buttons 0…n-1 in their current visual order.
+ *  Jo r13: `order` used to be assigned from the row COUNT, so once a button
+ *  had been deleted a new one collided with an existing position — and since
+ *  reordering swaps order VALUES, two rows sharing a value could never pass
+ *  each other (her Birthdays button was stuck at spot 5). */
+async function reindex(plannerId: string) {
+  const sorted = await db.sideButtons.where("plannerId").equals(plannerId).sortBy("order");
+  await Promise.all(
+    sorted.map(async (b, i) => {
+      if (b.order === i) return;
+      await db.sideButtons.update(b.id, { order: i });
+      await queueSync("sideButtons", b.id, "put");
+    })
+  );
+}
+
 export async function addSideButton(
   plannerId: string,
   init?: Partial<Omit<SideButton, "id" | "plannerId" | "order">>
 ): Promise<SideButton> {
+  await reindex(plannerId); // guarantee a clean 0…n-1 run before appending
   const count = await db.sideButtons.where("plannerId").equals(plannerId).count();
   const row: SideButton = {
     id: crypto.randomUUID(),
@@ -65,20 +82,23 @@ export async function updateSideButton(id: string, patch: Partial<SideButton>) {
 }
 
 export async function deleteSideButton(id: string) {
+  const row = await db.sideButtons.get(id);
   await db.sideButtons.delete(id);
   await queueSync("sideButtons", id, "delete");
+  if (row) await reindex(row.plannerId); // no gaps left behind to collide with
 }
 
-/** Swap `order` VALUES with the sorted neighbor — stays correct even after
- *  deletions leave gaps in the sequence. */
+/** Move one button up/down a slot. Renumbers first, so a row can always
+ *  pass its neighbour even if older data left duplicate order values. */
 export async function moveSideButton(plannerId: string, id: string, dir: 1 | -1) {
+  await reindex(plannerId);
   const sorted = await db.sideButtons.where("plannerId").equals(plannerId).sortBy("order");
   const i = sorted.findIndex((b) => b.id === id);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= sorted.length) return;
   await db.sideButtons.bulkPut([
-    { ...sorted[i], order: sorted[j].order },
-    { ...sorted[j], order: sorted[i].order },
+    { ...sorted[i], order: j },
+    { ...sorted[j], order: i },
   ]);
   await queueSync("sideButtons", sorted[i].id, "put");
   await queueSync("sideButtons", sorted[j].id, "put");

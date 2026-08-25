@@ -28,71 +28,74 @@ export default function WeekPage({ page }: { page: Page }) {
       <div className="absolute inset-[1.2cqw] flex border-[0.18cqw] border-black">
         {/* Day rows */}
         <div className="flex h-full flex-col" style={{ width: "57%" }}>
-          {days.map((d, i) => (
-            <div
-              key={i}
-              className="flex min-h-0 flex-1 border-b-[0.18cqw] border-black last:border-b-0"
-              // bold inset outline makes TODAY jump out (Jo)
-              style={
-                toISO(d) === todayISO
-                  ? { boxShadow: "inset 0 0 0 0.45cqw #1d4ed8" }
-                  : undefined
-              }
-            >
+          {days.map((d, i) => {
+            const m = marksFor(d);
+            return (
               <div
-                className="flex flex-col border-r-[0.18cqw] border-black"
-                style={{ width: "4.6cqw" }}
+                key={i}
+                className="flex min-h-0 flex-1 border-b-[0.18cqw] border-black last:border-b-0"
+                // bold inset outline makes TODAY jump out (Jo)
+                style={
+                  toISO(d) === todayISO
+                    ? { boxShadow: "inset 0 0 0 0.45cqw #1d4ed8" }
+                    : undefined
+                }
               >
                 <div
-                  className="pl-[0.5cqw] font-bold leading-none"
-                  style={{ fontSize: "2.7cqw", color: "#3fa9f5" }}
+                  className="flex flex-col border-r-[0.18cqw] border-black"
+                  style={{ width: "4.6cqw" }}
                 >
-                  {d.getDate()}
+                  <div
+                    className="pl-[0.5cqw] font-bold leading-none"
+                    style={{ fontSize: "2.7cqw", color: "#3fa9f5" }}
+                  >
+                    {d.getDate()}
+                  </div>
+                  <div
+                    className="flex flex-1 flex-col items-center justify-center font-bold leading-[1.05] text-black"
+                    style={{ fontSize: "2.2cqw" }}
+                  >
+                    {DAY_LETTERS[i].split("").map((ch, j) => (
+                      <span key={j}>{ch}</span>
+                    ))}
+                  </div>
                 </div>
-                <div
-                  className="flex flex-1 flex-col items-center justify-center font-bold leading-[1.05] text-black"
-                  style={{ fontSize: "2.2cqw" }}
-                >
-                  {DAY_LETTERS[i].split("").map((ch, j) => (
-                    <span key={j}>{ch}</span>
-                  ))}
+                <div className="relative flex-1" data-day={toISO(d)}>
+                  {/* Imported items live in the day's TOP-RIGHT corner (Jo r13),
+                    lining up beside the moon glyph when there is one and
+                    wrapping to another line past half the cell. The wrapper
+                    still spans the whole cell so dragged chips can pin
+                    anywhere. */}
+                  <div className="pointer-events-none absolute inset-[0.3cqw]">
+                    <EventChips
+                      dayISO={toISO(d)}
+                      includeNotices={false}
+                      align="right"
+                      reserveRight={m.moon ? "2.6cqw" : "0cqw"}
+                    />
+                  </div>
+                  {/* moon back in its classic top-right corner (Jo) */}
+                  {m.moon && (
+                    <span
+                      className="absolute right-[0.5cqw] top-[0.2cqw]"
+                      style={{ fontSize: "1.6cqw" }}
+                      title={m.moon.name}
+                    >
+                      {m.moon.glyph}
+                    </span>
+                  )}
+                  {m.holidays && (
+                    <div
+                      className="absolute bottom-[0.3cqw] left-[0.5cqw] font-semibold"
+                      style={{ fontSize: "1.5cqw", color: "#2b6fb3" }}
+                    >
+                      {m.holidays.join(" · ")}
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="relative flex-1" data-day={toISO(d)}>
-                {/* chips own the TOP of the day (Jo), full width; the wrapper
-                    spans the whole cell so dragged chips can pin anywhere.
-                    Right inset leaves the corner for the moon glyph. */}
-                <div className="pointer-events-none absolute inset-[0.3cqw] right-[3cqw]">
-                  <EventChips dayISO={toISO(d)} includeNotices={false} />
-                </div>
-                {(() => {
-                  const m = marksFor(d);
-                  return (
-                    <>
-                      {/* moon back in its classic top-right corner (Jo) */}
-                      {m.moon && (
-                        <span
-                          className="absolute right-[0.5cqw] top-[0.2cqw]"
-                          style={{ fontSize: "1.6cqw" }}
-                          title={m.moon.name}
-                        >
-                          {m.moon.glyph}
-                        </span>
-                      )}
-                      {m.holidays && (
-                        <div
-                          className="absolute bottom-[0.3cqw] left-[0.5cqw] font-semibold"
-                          style={{ fontSize: "1.5cqw", color: "#2b6fb3" }}
-                        >
-                          {m.holidays.join(" · ")}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Right column */}
@@ -111,7 +114,6 @@ export default function WeekPage({ page }: { page: Page }) {
           </div>
         </div>
       </div>
-
     </PageFrame>
   );
 }

@@ -23,6 +23,7 @@ import {
   getClipboardBlock,
   hasPageClipboard,
   hasSelectionClipboard,
+  internalClipboardAt,
   makeImageBlock,
   makeTextBlock,
   pasteAnyClipboardCentered,
@@ -189,6 +190,12 @@ export default function PlannerShell() {
     }
     return best?.id ?? null;
   }, []);
+
+  /** Where a paste lands: the note she's working in, else the page in view. */
+  const pasteTargetPageId = useCallback(
+    (): string | null => activeNoteRef.current ?? viewportCenterPageId(),
+    [viewportCenterPageId]
+  );
 
   const syncPagePosition = useCallback((index: number) => {
     const page = pagesRef.current[index];
@@ -445,7 +452,7 @@ export default function PlannerShell() {
 
   const pasteImage = useCallback(
     async (blob: Blob, target?: { pageId: string; x: number; y: number }) => {
-      const pageId = target?.pageId ?? activeNoteRef.current ?? viewportCenterPageId();
+      const pageId = target?.pageId ?? pasteTargetPageId();
       if (!pageId) return;
       const block = await makeImageBlock(
         pageId, blob, target?.x ?? PAGE_W * 0.25, target?.y ?? PAGE_H * 0.3
@@ -471,7 +478,7 @@ export default function PlannerShell() {
    *  looking at rather than the page behind it (Jo r12). */
   const pasteSelectionCentered = useCallback(async () => {
     if (!hasSelectionClipboard()) return false;
-    const pageId = activeNoteRef.current ?? viewportCenterPageId();
+    const pageId = pasteTargetPageId();
     if (!pageId) return false;
     const result = await pasteSelectionAt(pageId, PAGE_W / 2, PAGE_H / 2);
     if (result) setSelection(result);
@@ -488,8 +495,48 @@ export default function PlannerShell() {
       );
     };
 
+    // Ctrl+V bookkeeping: the browser only fires `paste` when the OS
+    // clipboard has something. r11 answered that by hijacking the keystroke,
+    // which meant that once ANYTHING had been copied inside the app, text and
+    // images copied from outside could never arrive (Jo r13). Now the native
+    // event always gets first refusal and the app's own clipboard is the
+    // fallback when no event shows up.
+    let nativePasteSeen = false;
+    let pasteFallback = 0;
+    // The OS clipboard carries no timestamp, so this stands in for one: it can
+    // only have been refilled while Jo was in another program.
+    let leftAppAt = 0;
+    const onLeaveApp = () => {
+      leftAppAt = Date.now();
+    };
+    const onVisibility = () => {
+      if (document.hidden) onLeaveApp();
+    };
+    const pasteInternal = () => {
+      const pageId = pasteTargetPageId();
+      if (!pageId) return;
+      void pasteAnyClipboardCentered(pageId).then((r) => {
+        if (!r) return;
+        if (r.kind === "selection") setSelection(r.selection);
+        else setSelectedBlockId(r.block.id);
+      });
+    };
+
     const onPaste = (e: ClipboardEvent) => {
-      if (isTyping()) return;
+      nativePasteSeen = true;
+      window.clearTimeout(pasteFallback);
+      if (isTyping()) return; // typing in a box: let the browser paste text
+      // Copied something HERE more recently than she was last away? Then the
+      // OS clipboard is a leftover — a cut ⬚ selection must not lose to the
+      // text of a block she copied ten minutes ago (Jo r13).
+      if (
+        (hasSelectionClipboard() || getClipboardBlock()) &&
+        internalClipboardAt() > leftAppAt
+      ) {
+        e.preventDefault();
+        pasteInternal();
+        return;
+      }
       const items = e.clipboardData?.items ?? [];
       for (const item of items) {
         if (item.type.startsWith("image/")) {
@@ -501,27 +548,29 @@ export default function PlannerShell() {
           }
         }
       }
-      // Ctrl+V pastes a cut/copied ⬚ selection (Jo: hotkeys must work too).
-      if (hasSelectionClipboard()) {
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      const pageId = pasteTargetPageId();
+      if (!pageId) return;
+      const internal = getClipboardBlock();
+      if (text.trim()) {
         e.preventDefault();
-        void pasteSelectionCentered();
+        // Text from outside lands as a new box — unless it IS the copied
+        // block's own text, in which case paste the richer clone.
+        if (internal && internal.content === text) {
+          void pasteClipboardBlock(pageId).then((b) => b && setSelectedBlockId(b.id));
+        } else {
+          const block = makeTextBlock(pageId, PAGE_W * 0.3, PAGE_H * 0.35, text);
+          void addBlock(block).then(() => {
+            setTool("select");
+            setSelectedBlockId(block.id);
+          });
+        }
         return;
       }
-      const text = e.clipboardData?.getData("text/plain") ?? "";
-      const internal = getClipboardBlock();
-      const pageId = activeNoteRef.current ?? viewportCenterPageId();
-      if (!pageId) return;
-      e.preventDefault();
-      // Fresh OS-clipboard text wins over a previously copied block — unless the
-      // text IS that block's content (then paste the richer block clone).
-      if (internal && (internal.content === text || !text.trim())) {
-        void pasteClipboardBlock(pageId).then((b) => b && setSelectedBlockId(b.id));
-      } else if (text.trim()) {
-        const block = makeTextBlock(pageId, PAGE_W * 0.3, PAGE_H * 0.35, text);
-        void addBlock(block).then(() => {
-          setTool("select");
-          setSelectedBlockId(block.id);
-        });
+      // Nothing usable from the OS clipboard → use the app's own.
+      if (hasSelectionClipboard() || internal) {
+        e.preventDefault();
+        pasteInternal();
       }
     };
 
@@ -581,18 +630,14 @@ export default function PlannerShell() {
           void copySelectedBlock(true);
         }
       } else if (e.ctrlKey && e.key.toLowerCase() === "v") {
-        // Jo r11 root cause: the browser only fires a `paste` event when the
-        // OS clipboard has content — cut ink lives in our INTERNAL clipboard,
-        // so Ctrl+V did nothing. Handle internal paste on keydown; when we
-        // don't, the native paste event still delivers OS images/text.
-        const pageId = activeNoteRef.current ?? viewportCenterPageId();
-        if (pageId && (hasSelectionClipboard() || getClipboardBlock())) {
-          e.preventDefault();
-          void pasteAnyClipboardCentered(pageId).then((r) => {
-            if (!r) return;
-            if (r.kind === "selection") setSelection(r.selection);
-            else setSelectedBlockId(r.block.id);
-          });
+        // Deliberately NOT preventDefault — see onPaste. If no paste event
+        // arrives shortly (empty OS clipboard), paste the app's own.
+        if (hasSelectionClipboard() || getClipboardBlock()) {
+          nativePasteSeen = false;
+          window.clearTimeout(pasteFallback);
+          pasteFallback = window.setTimeout(() => {
+            if (!nativePasteSeen) pasteInternal();
+          }, 150);
         }
       } else if (e.key === "Escape") {
         setSelection(null);
@@ -602,9 +647,14 @@ export default function PlannerShell() {
 
     window.addEventListener("paste", onPaste);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onLeaveApp);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      window.clearTimeout(pasteFallback);
       window.removeEventListener("paste", onPaste);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onLeaveApp);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [pasteImage, pasteSelectionCentered]);
 
@@ -1089,7 +1139,7 @@ export default function PlannerShell() {
                 void onAddPage(newPageName, addPageAnchor).then((page) => {
                   if (page && wantButton) {
                     void addSideButton(page.plannerId, {
-                      glyph: page.label.slice(0, 2),
+                      glyph: page.label.slice(0, 3),
                       label: page.label,
                       target: `page:${page.id}`,
                     });

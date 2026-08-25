@@ -8,6 +8,7 @@ import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
 import { TEXT_SIZE_PT } from "@/lib/ink/tools";
 import { addBlock, deleteBlock, makeTextBlock, updateBlock, copyBlockToClipboard, carryTaskForward } from "@/lib/blocks/actions";
 import { isCornerHandle, RESIZE_HANDLES, resizeRect, resizeRectAspectLocked } from "./resize-handles";
+import { shapeAtPoint, shapeRect } from "@/lib/ink/select";
 import { usePlannerUI } from "./ui-context";
 import { useColorSwatches } from "./useColorSwatches";
 
@@ -23,6 +24,7 @@ function BlockView({
   pageWidth,
   pageLogicalH,
   initialEdit = false,
+  onCtrlPick,
 }: {
   block: Block;
   pageWidth: number;
@@ -31,6 +33,8 @@ function BlockView({
   pageLogicalH: number;
   /** Open ready-to-type on mount (a note's body box — Jo r11). */
   initialEdit?: boolean;
+  /** ctrl/⌘-click: add or remove this block from a multi-item selection. */
+  onCtrlPick?: (blockId: string) => void;
 }) {
   const ui = usePlannerUI();
   const selected = ui.selectedBlockId === block.id;
@@ -106,11 +110,20 @@ function BlockView({
   const startDrag = (
     e: React.PointerEvent,
     mode: "move" | "resize",
-    edges?: { l?: boolean; r?: boolean; t?: boolean; b?: boolean }
+    edges?: { l?: boolean; r?: boolean; t?: boolean; b?: boolean },
+    /** the ✥ grip works with ANY tool, including pen/highlighter (Jo r13) */
+    force = false
   ) => {
-    // draggable in select mode, or whenever THIS block is selected (any tool)
-    if ((ui.tool !== "select" && !selected) || editing) return;
-    e.stopPropagation();
+    const usable = force || ui.tool === "select" || ui.tool === "text" || selected;
+    // Stop here regardless: letting the event reach the layer is what made
+    // the text tool drop a NEW box on top of the one she aimed at (Jo r13).
+    if (usable) e.stopPropagation();
+    if (!usable || editing) return;
+    // ctrl/⌘-click gathers items into one selection box so they move together
+    if (e.ctrlKey || e.metaKey) {
+      onCtrlPick?.(block.id);
+      return;
+    }
     ui.setSelectedBlockId(block.id);
     dragState.current = { startX: e.clientX, startY: e.clientY, orig: block, mode, edges };
     const el = e.currentTarget as HTMLElement;
@@ -192,8 +205,10 @@ function BlockView({
         // A SELECTED block rises above the ink canvas and stays interactive
         // with ANY tool — tap-to-select (InkCanvas) then drag to move.
         zIndex: selected ? 45 : block.z,
+        // The text tool must HIT existing boxes (select/resize/edit them);
+        // only taps on empty page area create a new one (Jo r13).
         pointerEvents:
-          ui.tool === "select" || selected || (ui.tool === "text" && editing) ? "auto" : "none",
+          ui.tool === "select" || ui.tool === "text" || selected ? "auto" : "none",
         outline: selected ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
         transform: undefined,
         // NONE, like every other drag surface: Windows treats a pen drag as
@@ -208,9 +223,9 @@ function BlockView({
         commitDrag(e);
       }}
       onDoubleClick={() => {
-        if (block.type !== "image" && ui.tool === "select") {
+        // the effect above focuses the box as soon as `editing` flips
+        if (block.type !== "image" && (ui.tool === "select" || ui.tool === "text")) {
           setEditing(true);
-          setTimeout(() => textRef.current?.focus(), 0);
         }
       }}
     >
@@ -241,6 +256,7 @@ function BlockView({
             } ${block.type === "task" && block.checked ? "line-through opacity-60" : ""}`}
             style={{
               fontSize: cq(fontSize * 1.9),
+              textAlign: block.align ?? "left",
               color: block.color ?? "#0f172a",
               fontWeight: block.bold ? 700 : 500,
               fontStyle: block.italic ? "italic" : undefined,
@@ -253,6 +269,24 @@ function BlockView({
       )}
       {selected && (
         <>
+          {/* ✥ grip: drag the box with ANY tool active — pen, text, hand —
+              without first switching tools (Jo r13). */}
+          <button
+            data-block-grip={block.id}
+            title="Drag to move this box (works with any tool)"
+            className="absolute -left-1.5 -top-6 flex h-5 w-5 cursor-move items-center justify-center rounded border border-white bg-blue-600 text-[11px] font-bold text-white shadow print:hidden"
+            style={{ touchAction: "none" }}
+            onPointerDown={(e) => startDrag(e, "move", undefined, true)}
+            onPointerMove={onDragMove}
+            onPointerUp={(e) => {
+              (e.currentTarget as HTMLElement).style.transform = "";
+              const host = (e.currentTarget as HTMLElement).closest("[data-block-id]") as HTMLElement | null;
+              if (host) host.style.transform = "";
+              commitDrag(e);
+            }}
+          >
+            ✥
+          </button>
           {/* 8 handles — same resize box as the ⬚ selection, but here the
               handles resize the ITEM itself (picture, text box, task) */}
           {RESIZE_HANDLES.map((hd) => (
@@ -373,6 +407,25 @@ function BlockView({
                 >
                   U
                 </button>
+                <span className="mx-0.5 h-4 w-px bg-slate-300" />
+                {/* left / center / right (Jo r13) */}
+                {([
+                  ["left", "◧"],
+                  ["center", "▥"],
+                  ["right", "◨"],
+                ] as const).map(([val, icon]) => (
+                  <button
+                    key={val}
+                    data-align-action={val}
+                    title={`Align ${val}`}
+                    onClick={() => patchStyle({ align: val })}
+                    className={`rounded px-1 text-[12px] ${
+                      (block.align ?? "left") === val ? "bg-slate-300" : "hover:bg-slate-200"
+                    }`}
+                  >
+                    {icon}
+                  </button>
+                ))}
               </div>
             )}
             <div className="flex items-center gap-1">
@@ -454,6 +507,32 @@ export default function BlocksLayer({
     return () => ro.disconnect();
   }, []);
 
+  /** ctrl/⌘-click gathers blocks into the standard dashed selection box, so
+   *  move / copy / cut / delete / resize all work on the group with the
+   *  machinery that already exists (Jo r13). */
+  const onCtrlPick = (blockId: string) => {
+    const all = blocks ?? [];
+    const sel = ui.selection?.pageId === pageId ? ui.selection : null;
+    const base = sel?.blockIds.length ? sel.blockIds : ui.selectedBlockId ? [ui.selectedBlockId] : [];
+    const next = base.includes(blockId) ? base.filter((b) => b !== blockId) : [...base, blockId];
+    const rows = all.filter((b) => next.includes(b.id));
+    if (rows.length < 2) {
+      ui.setSelection(null);
+      ui.setSelectedBlockId(rows[0]?.id ?? null);
+      return;
+    }
+    const rect = {
+      x: Math.min(...rows.map((b) => b.x)),
+      y: Math.min(...rows.map((b) => b.y)),
+      w: 0,
+      h: 0,
+    };
+    rect.w = Math.max(...rows.map((b) => b.x + b.w)) - rect.x;
+    rect.h = Math.max(...rows.map((b) => b.y + b.h)) - rect.y;
+    ui.setSelectedBlockId(null);
+    ui.setSelection({ pageId, rect, strokeIds: sel?.strokeIds ?? [], blockIds: next });
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (ui.tool === "text") {
       // First tap-away commits the box being edited; the NEXT tap places a
@@ -480,6 +559,21 @@ export default function BlocksLayer({
       });
     } else if (ui.tool === "select") {
       ui.setSelectedBlockId(null);
+      // Nothing here? Maybe a drawn shape is — tapping one with the hand
+      // tool selects it, which gives it the resize handles (Jo r13).
+      const rect = hostRef.current!.getBoundingClientRect();
+      const scale = PAGE_W / rect.width;
+      const px = (e.clientX - rect.left) * scale;
+      const py = (e.clientY - rect.top) * scale;
+      void db.strokes
+        .where("pageId").equals(pageId)
+        .toArray()
+        .then((strokes) => {
+          const hit = shapeAtPoint(strokes, px, py);
+          ui.setSelection(
+            hit ? { pageId, rect: shapeRect(hit), strokeIds: [hit.id], blockIds: [] } : null
+          );
+        });
     }
   };
 
@@ -506,6 +600,7 @@ export default function BlocksLayer({
               pageWidth={pageDims.w}
               pageLogicalH={pageDims.logicalH}
               initialEdit={b.id === firstTextId}
+              onCtrlPick={onCtrlPick}
             />
           ));
         })()}

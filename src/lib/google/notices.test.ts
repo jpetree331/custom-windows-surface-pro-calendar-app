@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/lib/db/db";
+import { ensureStarterCategories } from "@/lib/categories/actions";
 import type { GEvent } from "./api";
 import {
   deleteEventsFromCalendars,
@@ -253,5 +254,70 @@ describe("moon-phase cleanup + calendar checklist", () => {
     const r = await runImport(f);
     expect(r.calendars).toBe(1); // only the checked calendar
     expect(await db.events.where("googleId").equals("ev_dentist").count()).toBe(1);
+  });
+});
+
+describe("imported chips wear Jo's category colors (r13)", () => {
+  const HOLIDAY_CAL = "en.usa#holiday@group.v.calendar.google.com";
+  const APPOINTMENT: GEvent = {
+    id: "ev_hair",
+    summary: "Haircut",
+    start: { dateTime: "2026-07-22T09:00:00-05:00" },
+    end: { dateTime: "2026-07-22T10:00:00-05:00" },
+    eventType: "default",
+  };
+  const JULY4: GEvent = {
+    id: "ev_july4",
+    summary: "Independence Day",
+    start: { date: "2026-07-04" },
+    end: { date: "2026-07-05" },
+    eventType: "default",
+  };
+  const ANNIVERSARY: GEvent = {
+    id: "ev_anniv",
+    summary: "Wedding anniversary",
+    start: { date: "2026-07-25" },
+    end: { date: "2026-07-26" },
+    eventType: "default",
+  };
+
+  /** primary + a holiday calendar + one due task. */
+  const fullRoutes = (): [string, unknown][] => [
+    [
+      "/users/me/calendarList",
+      { items: [{ id: "primary", primary: true }, { id: HOLIDAY_CAL, selected: true }] },
+    ],
+    ["eventTypes=birthday", { items: [BIRTHDAY] }],
+    ["/calendars/primary/events", { items: [APPOINTMENT, ANNIVERSARY] }],
+    [`/calendars/${HOLIDAY_CAL}/events`, { items: [JULY4] }],
+    ["/users/@me/lists", { items: [{ id: "L1", title: "My Tasks" }] }],
+    ["/lists/L1/tasks", { items: [{ id: "t1", title: "Renew tags", due: "2026-07-23T00:00:00Z" }] }],
+  ];
+
+  const colorOf = async (title: string) => {
+    const ev = (await db.events.toArray()).find((e) => e.title === title);
+    const cats = await db.categories.toArray();
+    return cats.find((c) => c.id === ev?.categoryId)?.name;
+  };
+
+  it("maps holidays, birthdays, anniversaries, appointments and tasks", async () => {
+    await ensureStarterCategories(PLANNER_ID);
+    await runImport(routeFetch(fullRoutes()));
+    expect(await colorOf("Independence Day")).toBe("Holidays");
+    expect(await colorOf("Mom's birthday")).toBe("Birthdays");
+    expect(await colorOf("Wedding anniversary")).toBe("Birthdays");
+    expect(await colorOf("Haircut")).toBe("Appointments");
+    expect(await colorOf("Renew tags")).toBe("To-Do List");
+  });
+
+  it("never overwrites a category Jo picked by hand", async () => {
+    await ensureStarterCategories(PLANNER_ID);
+    await runImport(routeFetch(fullRoutes()));
+    const cats = await db.categories.toArray();
+    const misc = cats.find((c) => c.name === "Misc.")!;
+    const hair = (await db.events.toArray()).find((e) => e.title === "Haircut")!;
+    await db.events.update(hair.id, { categoryId: misc.id });
+    await runImport(routeFetch(fullRoutes()));
+    expect(await colorOf("Haircut")).toBe("Misc.");
   });
 });

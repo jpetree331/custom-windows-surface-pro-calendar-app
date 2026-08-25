@@ -86,7 +86,14 @@ export default function MonthPage({ page }: { page: Page }) {
                       No reminder chips on month pages (Jo r12) — the month
                       grid is for what's actually happening that day. */}
                   <div className="relative min-h-0 flex-1 overflow-hidden pt-[0.2cqw]">
-                    <EventChips dayISO={isoOf(day)} compact includeNotices={false} />
+                    {/* month grid: no reminder chips (r12) and no Google
+                        Tasks (Jo r13) — just what's happening that day */}
+                    <EventChips
+                      dayISO={isoOf(day)}
+                      compact
+                      includeNotices={false}
+                      includeTasks={false}
+                    />
                   </div>
                   {holidays.get(isoOf(day)) && (
                     <span

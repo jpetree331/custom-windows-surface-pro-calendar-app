@@ -242,6 +242,8 @@ export async function upsertEvents(rows: PlannerEvent[]): Promise<{ added: numbe
         offsetX: existing?.offsetX,
         offsetY: existing?.offsetY,
         done: existing?.done,
+        // a category she picked herself outranks the import's default
+        categoryId: existing?.categoryId ?? row.categoryId,
       });
       savedIds.push(id);
       existing ? updated++ : added++;
@@ -338,10 +340,10 @@ export async function importYear(
 
   // Google Tasks → To-Do items on their due dates.
   let taskCount = 0;
+  const cats = await db.categories.where("plannerId").equals(plannerId).toArray();
+  const todoCat = cats.find((c) => /to.?do/i.test(c.name));
   try {
     const tasks = await listAllTasks(token, { dueMin: timeMin, dueMax: timeMax }, fetchImpl);
-    const cats = await db.categories.where("plannerId").equals(plannerId).toArray();
-    const todoCat = cats.find((c) => /to.?do/i.test(c.name));
     for (const t of tasks) {
       if (!t.due || !t.title?.trim()) continue;
       rows.push({
@@ -362,6 +364,17 @@ export async function importYear(
       "Google Tasks weren't imported — reconnect Google, and make sure the Google Tasks API is enabled for the app."
     );
   }
+
+  // Imported chips wear her own category colors (Jo r13): holidays pink,
+  // birthdays & anniversaries orange, appointments turquoise, tasks purple.
+  const catFor = (r: PlannerEvent) => {
+    const byName = (re: RegExp) => cats.find((c) => re.test(c.name))?.id;
+    if (r.kind === "reminder") return todoCat?.id;
+    if (r.kind === "birthday" || /\banniversar/i.test(r.title)) return byName(/birthday/i);
+    if (r.calendarId && /holiday/i.test(r.calendarId)) return byName(/holiday/i);
+    return byName(/appoint/i);
+  };
+  for (const r of rows) r.categoryId = r.categoryId ?? catFor(r);
 
   const { added, updated } = await upsertEvents(rows);
   // AGAIN, after the upsert: purging only up front let a still-subscribed

@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db/db";
 import type { Stroke } from "@/lib/db/types";
-import { computeAreaSelection, strokesInRect } from "./select";
+import { computeAreaSelection, shapeAtPoint, strokesInRect } from "./select";
 import { formatTime } from "@/lib/settings";
 
 const stroke = (id: string, points: [number, number][]): Stroke => ({
@@ -71,5 +71,28 @@ describe("formatTime", () => {
     expect(formatTime("09:15", "12h")).toBe("9:15 AM");
     expect(formatTime("14:00", "24h")).toBe("14:00");
     expect(formatTime(undefined, "12h")).toBeUndefined();
+  });
+});
+
+describe("shapeAtPoint (Jo r13: circles and rectangles are selectable)", () => {
+  const box: Stroke = { ...stroke("box", [[100, 100], [300, 200]]), tool: "rect" };
+  const ring: Stroke = { ...stroke("ring", [[400, 100], [500, 200]]), tool: "circle" };
+  const scribble = stroke("scribble", [[110, 110], [120, 120]]);
+
+  it("finds a shape when tapped inside, and nothing out in the margin", () => {
+    expect(shapeAtPoint([box, ring], 200, 150)?.id).toBe("box");
+    expect(shapeAtPoint([box, ring], 450, 150)?.id).toBe("ring");
+    expect(shapeAtPoint([box, ring], 800, 800)).toBeUndefined();
+  });
+
+  it("forgives a near-miss on the border by the pen tolerance", () => {
+    expect(shapeAtPoint([box], 96, 150)?.id).toBe("box"); // just outside the left edge
+    expect(shapeAtPoint([box], 60, 150)).toBeUndefined(); // clearly outside
+  });
+
+  it("ignores handwriting and picks the newest shape when they overlap", () => {
+    expect(shapeAtPoint([scribble], 115, 115)).toBeUndefined();
+    const newer: Stroke = { ...box, id: "box2", createdAt: 2 };
+    expect(shapeAtPoint([box, newer], 200, 150)?.id).toBe("box2");
   });
 });

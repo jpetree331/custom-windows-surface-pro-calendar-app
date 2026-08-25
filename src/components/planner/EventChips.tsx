@@ -20,11 +20,21 @@ export default function EventChips({
   dayISO,
   compact = false,
   includeNotices = true,
+  includeTasks = true,
+  align = "left",
+  reserveRight = "0cqw",
 }: {
   dayISO: string;
   compact?: boolean;
   /** Week pages render 🔔 chips in the REMINDERS panel instead (Jo r10). */
   includeNotices?: boolean;
+  /** Month pages leave Google Tasks out (Jo r13). */
+  includeTasks?: boolean;
+  /** "right" parks imported items in the day's top-right corner, wrapping
+   *  onto further lines once they pass half the cell (Jo r13). */
+  align?: "left" | "right";
+  /** Space kept clear on the right — the moon glyph's corner. */
+  reserveRight?: string;
 }) {
   const { plannerId, timeFormat, tool } = usePlannerUI();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -42,10 +52,11 @@ export default function EventChips({
             e.plannerId === plannerId &&
             (includeNotices
               ? !(e.kind === "notice" && e.noticeKind === "birthday-lead")
-              : e.kind !== "notice")
+              : e.kind !== "notice") &&
+            (includeTasks || e.kind !== "reminder")
         )
         .toArray(),
-    [dayISO, plannerId, includeNotices]
+    [dayISO, plannerId, includeNotices, includeTasks]
   );
   const categories = useLiveQuery(() => db.categories.toArray(), []) ?? [];
   // Tap a chip to reveal a long title; tap again to collapse.
@@ -219,15 +230,26 @@ export default function EventChips({
     // month-grid column (grid items default to min-width:auto).
     <div
       ref={rootRef}
-      className="relative flex h-full w-full min-w-0 flex-col items-start gap-[0.15cqw]"
+      className="relative h-full w-full min-w-0"
       style={{ fontSize: compact ? "1.05cqw" : "1.4cqw" }}
     >
-      {flow.slice(0, maxFlow).map((e) => chipEl(e, false))}
-      {flow.length > maxFlow && (
-        <span className="text-slate-600" style={{ fontSize: "1cqw" }}>
-          +{flow.length - maxFlow} more
-        </span>
-      )}
+      {/* The root still spans the WHOLE cell so dragged chips keep their
+          stored %-offsets; only the flow layout moves (Jo r13). */}
+      <div
+        className={
+          align === "right"
+            ? "absolute right-0 top-0 flex max-w-[52%] flex-wrap justify-end gap-x-[0.3cqw] gap-y-[0.15cqw]"
+            : "flex w-full min-w-0 flex-col items-start gap-[0.15cqw]"
+        }
+        style={align === "right" ? { paddingRight: reserveRight } : undefined}
+      >
+        {flow.slice(0, maxFlow).map((e) => chipEl(e, false))}
+        {flow.length > maxFlow && (
+          <span className="text-slate-600" style={{ fontSize: "1cqw" }}>
+            +{flow.length - maxFlow} more
+          </span>
+        )}
+      </div>
       {pinned.map((e) => chipEl(e, true))}
       {popover && (
         <>

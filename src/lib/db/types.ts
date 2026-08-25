@@ -65,6 +65,8 @@ export interface Block {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /** Text alignment inside the box (Jo r13); default left. */
+  align?: "left" | "center" | "right";
   /** Image bytes for image blocks (stored as Blob in IndexedDB). */
   imageBlob?: Blob;
   /** Task blocks only. */

@@ -7,6 +7,7 @@ import {
   addBlankPage,
   addBlock,
   carryTaskForward,
+  copyBlockToClipboard,
   copyPageToClipboard,
   copySelectionToClipboard,
   deletePage,
@@ -14,6 +15,7 @@ import {
   duplicatePage,
   duplicateSelectionContents,
   hasSelectionClipboard,
+  internalClipboardAt,
   makeTextBlock,
   moveSelectionContents,
   addStroke,
@@ -310,6 +312,31 @@ describe("⬚ selection cut/copy → paste on another page", () => {
     await history.undo();
     expect(await db.strokes.where("pageId").equals(src.id).count()).toBe(1);
     expect((await db.blocks.where("pageId").equals(src.id).toArray())[0].content).toBe("move me");
+  });
+});
+
+describe("clipboard recency (Jo r13: Ctrl+V pastes whatever was copied LAST)", () => {
+  beforeEach(seed);
+
+  it("stamps every in-app copy, so a stale OS clipboard can be told apart", async () => {
+    const page = (await db.pages.toArray())[0];
+    const block = makeTextBlock(page.id, 100, 100, "shopping list");
+    await addBlock(block);
+    await addStroke({
+      id: "cb1", pageId: page.id, tool: "pen", color: "#000", width: 1, opacity: 1,
+      points: [[10, 10, 0.5], [40, 40, 0.5]], createdAt: 1,
+    });
+
+    const before = internalClipboardAt();
+    copyBlockToClipboard(block); // also writes the text to the OS clipboard
+    const afterBlockCopy = internalClipboardAt();
+    expect(afterBlockCopy).toBeGreaterThanOrEqual(before);
+
+    await copySelectionToClipboard({ pageId: page.id, strokeIds: ["cb1"], blockIds: [] }, false);
+    // the ⬚ copy is now the newest intent, even though the OS clipboard still
+    // holds "shopping list" from the block copy
+    expect(hasSelectionClipboard()).toBe(true);
+    expect(internalClipboardAt()).toBeGreaterThanOrEqual(afterBlockCopy);
   });
 });
 

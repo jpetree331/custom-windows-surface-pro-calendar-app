@@ -45,6 +45,27 @@ describe("side button seeding + ordering", () => {
     expect(clamped[0].id).toBe(after[0].id);
   });
 
+  it("a button added after a deletion can still be reordered (Jo r13)", async () => {
+    // Root cause of "Birthdays won't move below 5th": order was assigned from
+    // the row COUNT, so after any delete a new button duplicated an existing
+    // order value — and swapping two equal orders changes nothing.
+    await ensureSideButtonsSeeded(P);
+    const seeded = await db.sideButtons.where("plannerId").equals(P).sortBy("order");
+    await deleteSideButton(seeded[0].id);
+    const added = await addSideButton(P, { label: "Gifts", target: "page:x" });
+    const orders = (await db.sideButtons.where("plannerId").equals(P).toArray())
+      .map((b) => b.order)
+      .sort((a, b) => a - b);
+    expect(new Set(orders).size).toBe(orders.length); // no duplicates
+    await moveSideButton(P, added.id, -1);
+    const after = await db.sideButtons.where("plannerId").equals(P).sortBy("order");
+    expect(after[after.length - 2].id).toBe(added.id);
+    // …and it keeps climbing, all the way to the top
+    for (let i = 0; i < after.length; i++) await moveSideButton(P, added.id, -1);
+    const top = await db.sideButtons.where("plannerId").equals(P).sortBy("order");
+    expect(top[0].id).toBe(added.id);
+  });
+
   it("new buttons append at the end", async () => {
     await ensureSideButtonsSeeded(P);
     const added = await addSideButton(P, { label: "Gifts", target: "page:x" });

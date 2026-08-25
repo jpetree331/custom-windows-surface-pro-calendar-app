@@ -104,8 +104,18 @@ function imageSize(blob: Blob): Promise<{ w: number; h: number }> {
 /** In-app clipboard for copying blocks between pages. */
 let blockClipboard: Block | null = null;
 
+/** When the app last filled a clipboard of its own. Ctrl+V weighs this
+ *  against the last time the window lost focus: the OS clipboard can only
+ *  have changed while she was off in another program, so anything copied
+ *  here since then is the newer intent (Jo r13). */
+let internalCopyAt = 0;
+export function internalClipboardAt(): number {
+  return internalCopyAt;
+}
+
 export function copyBlockToClipboard(block: Block) {
   blockClipboard = { ...block };
+  internalCopyAt = Date.now();
   // Mutually exclusive with the ⬚ clipboard: Ctrl+V pastes whichever was
   // copied LAST — a stale area copy must never pre-empt a fresh block copy.
   selectionClipboard = null;
@@ -357,6 +367,7 @@ export async function copySelectionToClipboard(sel: AreaSelectionRef, cut: boole
   const { strokes, blocks } = await selectionRows(sel);
   if (strokes.length === 0 && blocks.length === 0) return;
   blockClipboard = null; // last copy wins (see copyBlockToClipboard)
+  internalCopyAt = Date.now();
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of strokes) for (const [x, y] of s.points) {
     if (x < minX) minX = x; if (x > maxX) maxX = x;

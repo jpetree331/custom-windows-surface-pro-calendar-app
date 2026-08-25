@@ -181,8 +181,8 @@ function chromeLinks(ctx: Ctx): { draw: (page: PDFPage) => void; links: LinkSpec
       });
       const classic: Record<string, string> = { "✱": "*", "🎂": "BD" };
       const g =
-        safe(b.glyph) || classic[b.glyph] || safe(b.label).slice(0, 2).toUpperCase() || "•";
-      const size = g.length > 1 ? 7 : 11;
+        safe(b.glyph) || classic[b.glyph] || safe(b.label).slice(0, 3).toUpperCase() || "•";
+      const size = g.length >= 3 ? 5.5 : g.length > 1 ? 7 : 11;
       page.drawText(g, {
         x: px(PAGE_W - BTN - 4) + (BTN * S - ctx.bold.widthOfTextAtSize(g, size)) / 2,
         y: py(top + BTN) + (BTN * S - size) / 2 + 1,
@@ -635,11 +635,16 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
     const textColor = b.color ? hex(b.color) : INK_BLACK;
     const prefix = b.type === "task" ? (b.checked ? "[x] " : "[ ] ") : "";
     const drawLine = (line: string, yCursor: number) => {
-      page.drawText(line, { x: px(b.x + 4), y: py(yCursor), size, font: blockFont, color: textColor });
+      // Match the on-screen justification (Jo r13).
+      const lineW = blockFont.widthOfTextAtSize(line, size);
+      const slack = Math.max(0, (b.w - 10) * S - lineW);
+      const x =
+        px(b.x + 4) + (b.align === "center" ? slack / 2 : b.align === "right" ? slack : 0);
+      page.drawText(line, { x, y: py(yCursor), size, font: blockFont, color: textColor });
       if (b.underline) {
         page.drawLine({
-          start: { x: px(b.x + 4), y: py(yCursor) - 1.5 },
-          end: { x: px(b.x + 4) + blockFont.widthOfTextAtSize(line, size), y: py(yCursor) - 1.5 },
+          start: { x, y: py(yCursor) - 1.5 },
+          end: { x: x + lineW, y: py(yCursor) - 1.5 },
           thickness: 0.7,
           color: textColor,
         });

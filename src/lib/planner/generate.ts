@@ -4,6 +4,13 @@ import { MONTH_NAMES, daysInMonth, toISO, weeksOfYear } from "./dates";
 import { PLANNER_YEAR, SECTIONS } from "./constants";
 import { STARTERS } from "@/lib/categories/actions";
 import { PLANNER_NAME } from "@/lib/branding";
+import { queueSync } from "@/lib/sync";
+
+/** Every seeded row must reach the sync queue, or the silent Drive backup
+ *  sees a "clean" database and skips a whole new year of setup. */
+const queueAll = async (table: string, rows: { id: string }[]) => {
+  for (const r of rows) await queueSync(table, r.id, "put");
+};
 
 /**
  * Build the full 79-page planner for a year:
@@ -74,7 +81,10 @@ export function buildPages(plannerId: string, year: number): Page[] {
  * double-seed: the second one finds the planner and does nothing).
  */
 export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<Planner> {
-  return db.transaction("rw", [db.planners, db.pages, db.categories, db.habits], async () => {
+  return db.transaction(
+    "rw",
+    [db.planners, db.pages, db.categories, db.habits, db.sideButtons, db.syncQueue],
+    async () => {
     let p = await db.planners.where("year").equals(year).first();
     if (p) {
       // Self-heal a planner row that somehow lost its pages.
@@ -92,34 +102,76 @@ export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<
       updatedAt: Date.now(),
     };
     await db.planners.add(p);
-    await db.pages.bulkAdd(buildPages(p.id, year));
+    const fresh = buildPages(p.id, year);
+    await db.pages.bulkAdd(fresh);
+    await queueSync("planners", p.id, "put");
+    await queueAll("pages", fresh);
 
     const previous = (await db.planners.where("year").below(year).toArray())
       .sort((a, b) => b.year - a.year)[0];
     if (previous) {
       // New year starts set up the way Jo left the previous one.
-      const [cats, habits] = await Promise.all([
+      const [cats, habits, prevPages, prevButtons] = await Promise.all([
         db.categories.where("plannerId").equals(previous.id).toArray(),
         db.habits.where("plannerId").equals(previous.id).toArray(),
+        db.pages.where("plannerId").equals(previous.id).toArray(),
+        db.sideButtons.where("plannerId").equals(previous.id).toArray(),
       ]);
-      await db.categories.bulkAdd(
-        cats.map((c) => ({ ...c, id: crypto.randomUUID(), plannerId: p.id }))
-      );
-      await db.habits.bulkAdd(
-        habits.filter((h) => h.active).map((h) => ({ ...h, id: crypto.randomUUID(), plannerId: p.id }))
-      );
+      const newCats = cats.map((c) => ({ ...c, id: crypto.randomUUID(), plannerId: p.id }));
+      const newHabits = habits
+        .filter((h) => h.active)
+        .map((h) => ({ ...h, id: crypto.randomUUID(), plannerId: p.id }));
+      await db.categories.bulkAdd(newCats);
+      await db.habits.bulkAdd(newHabits);
+      await queueAll("categories", newCats);
+      await queueAll("habits", newHabits);
+
+      // Roll her OWN pages over too (Jo r13): pages she added at the back of
+      // last year reappear at the back of the new one, with their titles —
+      // structure only, so a year of handwriting isn't duplicated.
+      const carried = prevPages
+        .filter((pg) => pg.type === "section" && pg.meta.sectionKey === "custom")
+        .sort((a, b) => a.index - b.index);
+      const tail = await db.pages.where("plannerId").equals(p.id).count();
+      const idMap = new Map<string, string>();
+      const copies = carried.map((pg, i) => {
+        const id = crypto.randomUUID();
+        idMap.set(pg.id, id);
+        return { ...pg, id, plannerId: p.id, index: tail + i, updatedAt: Date.now() };
+      });
+      if (copies.length) {
+        await db.pages.bulkAdd(copies);
+        await queueAll("pages", copies);
+      }
+
+      // …and her sidebar buttons, with page targets repointed at this
+      // year's copies (a "page:" target for a page that didn't roll over
+      // falls back to the current week rather than pointing into last year).
+      const newButtons = prevButtons
+        .sort((a, b) => a.order - b.order)
+        .map((b, i) => {
+          let target = b.target;
+          if (target.startsWith("page:")) {
+            const mapped = idMap.get(target.slice(5));
+            target = mapped ? `page:${mapped}` : "current-week";
+          }
+          return { ...b, id: crypto.randomUUID(), plannerId: p.id, order: i, target };
+        });
+      await db.sideButtons.bulkAdd(newButtons);
+      await queueAll("sideButtons", newButtons);
     } else {
       // Very first planner ever: seed Jo's starter categories atomically.
-      await db.categories.bulkAdd(
-        STARTERS.map((s, i) => ({
-          id: crypto.randomUUID(),
-          plannerId: p.id,
-          name: s.name,
-          color: s.color,
-          order: i,
-        }))
-      );
+      const starters = STARTERS.map((s, i) => ({
+        id: crypto.randomUUID(),
+        plannerId: p.id,
+        name: s.name,
+        color: s.color,
+        order: i,
+      }));
+      await db.categories.bulkAdd(starters);
+      await queueAll("categories", starters);
     }
-    return p;
-  });
+      return p;
+    }
+  );
 }

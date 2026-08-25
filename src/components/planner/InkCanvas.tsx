@@ -11,7 +11,12 @@ import {
   PT_TO_UNITS,
 } from "@/lib/ink/tools";
 import { drawStroke, renderStrokes, strokesHitByEraser } from "@/lib/ink/render";
-import { computeAreaSelection, computeAreaSelectionPolygon } from "@/lib/ink/select";
+import {
+  computeAreaSelection,
+  computeAreaSelectionPolygon,
+  shapeAtPoint,
+  shapeRect,
+} from "@/lib/ink/select";
 import { addStroke, deleteStrokes } from "@/lib/blocks/actions";
 import { usePlannerUI } from "./ui-context";
 
@@ -302,9 +307,11 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
         await finishMarquee();
       } else if (tool === "lasso") {
         await finishLasso();
-      } else if (points.length > 1) {
+      } else if (points.length > 0) {
         // A quick TAP on a block selects it to move (Jo: "click any item"),
-        // instead of leaving a dot of ink on top of it.
+        // instead of leaving a dot of ink on top of it. A crisp stylus tap
+        // can report a single point and no move at all, so taps are handled
+        // before the "is this a stroke?" test below (Jo r13).
         const isTap =
           performance.now() - downTime < 350 &&
           points.length <= 5 &&
@@ -312,6 +319,23 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
             points[points.length - 1][0] - points[0][0],
             points[points.length - 1][1] - points[0][1]
           ) < 8;
+        // A tap with the shape tool picks up an existing shape to resize,
+        // instead of stamping a zero-size one (Jo r13).
+        if (isTap && (tool === "rect" || tool === "circle")) {
+          const hit = shapeAtPoint(strokesRef.current, points[0][0], points[0][1]);
+          points = [];
+          repaintLive();
+          if (hit) {
+            uiRef.current.setSelectedBlockId(null);
+            uiRef.current.setSelection({
+              pageId,
+              rect: shapeRect(hit),
+              strokeIds: [hit.id],
+              blockIds: [],
+            });
+          }
+          return;
+        }
         if (isTap && (tool === "pen" || tool === "highlighter")) {
           const hit = await topBlockAt(points[0][0], points[0][1]);
           if (hit) {
@@ -320,6 +344,13 @@ export default function InkCanvas({ pageId }: { pageId: string }) {
             uiRef.current.setSelectedBlockId(hit.id);
             return;
           }
+        }
+        // One lone point is not a stroke: for a shape tool it would stamp a
+        // zero-size box, and pen/highlighter never drew a dot from it either.
+        if (points.length < 2) {
+          points = [];
+          repaintLive();
+          return;
         }
         const stroke: Stroke = { ...activeStroke(), id: crypto.randomUUID() };
         points = [];

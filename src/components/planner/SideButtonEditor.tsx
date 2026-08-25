@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/db";
 import {
@@ -11,12 +12,22 @@ import {
 } from "@/lib/planner/sideButtons";
 import { SECTIONS } from "@/lib/planner/constants";
 
+/** Tap-to-pick symbols for button faces (Jo r13) — plain shapes first, then
+ *  pictures. Note: PDF exports fall back to the button's first letters for
+ *  anything outside Latin-1, which is most of these. */
+const SYMBOLS = [
+  "★", "☆", "✓", "✔", "✚", "✎", "✂", "⚑", "⚠", "⌂",
+  "☀", "☾", "♥", "●", "▲", "■", "◆", "✦", "➤", "⚙",
+  "🎂", "🗒", "📌", "📞", "💊", "🛒", "💰", "🎁", "🐾", "✈",
+];
+
 /**
  * Editor for the right-edge jump buttons. Lives in two places (Jo r12): the
  * Settings accordion, and a popover hung off the sidebar's ＋ button so she
  * never has to open Settings just to add one.
  */
 export default function SideButtonEditor({ plannerId }: { plannerId: string }) {
+  const [symbolFor, setSymbolFor] = useState<string | null>(null);
   const sideButtons = useLiveQuery(
     () => db.sideButtons.where("plannerId").equals(plannerId).sortBy("order"),
     [plannerId]
@@ -40,7 +51,8 @@ export default function SideButtonEditor({ plannerId }: { plannerId: string }) {
       </p>
       <div className="mb-2 space-y-1" data-side-button-editor>
         {(sideButtons ?? []).map((b, i) => (
-          <div key={b.id} className="flex items-center gap-1.5" data-side-button-row={b.id}>
+          <div key={b.id} data-side-button-row={b.id}>
+            <div className="flex items-center gap-1.5">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/60 text-sm font-extrabold text-black shadow"
               style={{ background: gradientFrom(b.colorHex) }}
@@ -50,14 +62,22 @@ export default function SideButtonEditor({ plannerId }: { plannerId: string }) {
             {/* defaultValue + onBlur, like habit/category names: a controlled
                 input racing the async liveQuery echo drops keystrokes */}
             <input
-              key={`g-${b.id}`}
+              key={`g-${b.id}-${b.glyph}`}
               defaultValue={b.glyph}
-              maxLength={2}
+              maxLength={3}
               data-side-input="glyph"
-              title="Letter or symbol on the button"
+              title="Up to 3 letters, or pick a symbol"
               onBlur={(e) => void updateSideButton(b.id, { glyph: e.target.value })}
-              className="w-10 rounded border border-slate-300 px-1 py-0.5 text-center text-sm"
+              className="w-12 rounded border border-slate-300 px-1 py-0.5 text-center text-sm"
             />
+            <button
+              data-side-action="symbols"
+              title="Pick a symbol"
+              onClick={() => setSymbolFor(symbolFor === b.id ? null : b.id)}
+              className="shrink-0 rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              ▾
+            </button>
             <input
               key={`l-${b.id}`}
               defaultValue={b.label}
@@ -118,6 +138,28 @@ export default function SideButtonEditor({ plannerId }: { plannerId: string }) {
             >
               ✕
             </button>
+            </div>
+            {symbolFor === b.id && (
+              <div
+                data-symbol-picker={b.id}
+                className="mb-1 flex flex-wrap gap-1 rounded border border-slate-200 bg-slate-50 p-1.5"
+              >
+                {SYMBOLS.map((sym) => (
+                  <button
+                    key={sym}
+                    data-symbol={sym}
+                    title={`Use ${sym}`}
+                    onClick={() => {
+                      void updateSideButton(b.id, { glyph: sym });
+                      setSymbolFor(null);
+                    }}
+                    className="flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white text-base hover:bg-blue-50"
+                  >
+                    {sym}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

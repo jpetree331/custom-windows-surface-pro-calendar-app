@@ -62,8 +62,12 @@ export default function SideButtons({
           data-side-button={b.id}
           title={b.label}
           onClick={() => onJump(b.target)}
-          className="pointer-events-auto relative flex h-9 w-9 items-center justify-center rounded-md border border-white/60 text-lg font-extrabold text-black shadow-md active:scale-95"
-          style={{ background: gradientFrom(b.colorHex) }}
+          className="pointer-events-auto relative flex h-9 w-9 items-center justify-center rounded-md border border-white/60 font-extrabold leading-none text-black shadow-md active:scale-95"
+          // names may run to 3 characters now (Jo r13) — shrink to fit
+          style={{
+            background: gradientFrom(b.colorHex),
+            fontSize: [...b.glyph].length >= 3 ? "0.72rem" : [...b.glyph].length === 2 ? "0.95rem" : "1.125rem",
+          }}
         >
           {b.glyph}
         </button>

@@ -115,3 +115,31 @@ export function strokesInRect(strokes: Stroke[], rect: Rect): string[] {
     (x, y) => x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h
   );
 }
+
+/** Bounding box of a 2-point shape stroke (rect/circle). */
+export function shapeRect(stroke: Stroke): Rect {
+  const [a, b] = [stroke.points[0], stroke.points[stroke.points.length - 1]];
+  return {
+    x: Math.min(a[0], b[0]),
+    y: Math.min(a[1], b[1]),
+    w: Math.abs(b[0] - a[0]),
+    h: Math.abs(b[1] - a[1]),
+  };
+}
+
+/**
+ * Topmost drawn rectangle/circle under a point (Jo r13: shapes must be
+ * selectable and resizable). Newest wins, and a generous tolerance means she
+ * can tap the outline rather than having to hit it exactly.
+ */
+export function shapeAtPoint(strokes: Stroke[], x: number, y: number, tol = 14): Stroke | undefined {
+  return [...strokes]
+    .filter((s) => (s.tool === "rect" || s.tool === "circle") && s.points.length >= 2)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .find((s) => {
+      const r = shapeRect(s);
+      return (
+        x >= r.x - tol && x <= r.x + r.w + tol && y >= r.y - tol && y <= r.y + r.h + tol
+      );
+    });
+}
