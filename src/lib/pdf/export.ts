@@ -20,6 +20,7 @@ import { holidaysForYear } from "@/lib/calendar/holidays";
 import { moonPhasesForYear } from "@/lib/calendar/moon";
 import { PT_TO_UNITS, HIGHLIGHTER_OPACITY } from "@/lib/ink/tools";
 import { formatTime } from "@/lib/settings";
+import { sortDayEvents } from "@/lib/events/layout";
 
 /** US Letter — aspect 0.773 vs the logical page's 0.769: near-perfect fit. */
 const PT_W = 612;
@@ -279,8 +280,8 @@ function drawDayMarks(
   // A PDF is a fixed snapshot with no live "today" — fading by export date
   // would mislead a reader later, so it's intentionally not reproduced here
   // (the done-strikethrough below IS, since that's a fact about the item).
-  const events = (ctx.eventsByDate.get(iso) ?? []).filter(
-    (e) => includeNotices || e.kind !== "notice"
+  const events = sortDayEvents(
+    (ctx.eventsByDate.get(iso) ?? []).filter((e) => includeNotices || e.kind !== "notice")
   );
   const max = compact ? 3 : 5;
   events.slice(0, max).forEach((e, i) => {

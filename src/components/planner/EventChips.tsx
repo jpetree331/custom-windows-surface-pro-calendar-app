@@ -7,7 +7,7 @@ import type { PlannerEvent } from "@/lib/db/types";
 import { usePlannerUI } from "./ui-context";
 import { formatTime } from "@/lib/settings";
 import { moveEventChip, resetEventChipPosition, setEventDone } from "@/lib/events/actions";
-import { clampChipOffset } from "@/lib/events/layout";
+import { clampChipOffset, sortDayEvents } from "@/lib/events/layout";
 
 /**
  * Colored event/birthday chips for one day cell (week + month templates).
@@ -80,7 +80,7 @@ export default function EventChips({
     categories.find((c) => c.id === e.categoryId)?.color ??
     (e.kind === "birthday" ? "#f2599a" : e.kind === "notice" ? "#64748b" : "#3fa9f5");
 
-  const flow = events.filter((e) => e.offsetX == null);
+  const flow = sortDayEvents(events.filter((e) => e.offsetX == null));
   const pinned = events.filter((e) => e.offsetX != null);
   const maxFlow = compact ? 3 : 6;
 

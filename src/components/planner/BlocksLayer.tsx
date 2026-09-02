@@ -54,8 +54,18 @@ function BlockView({
       (block.type !== "image" && block.content === "" && Date.now() - block.createdAt < 3000)
   );
   const textRef = useRef<HTMLDivElement>(null);
+  // Jo r14: a box she resized by hand while typing keeps that size — the
+  // shrink-to-fit on Done must not undo it, and the "comfortable" editing
+  // minimum no longer applies. Reset each time an edit session starts.
+  const [manualSize, setManualSize] = useState(false);
+  // Which drag is in flight — while MOVING, only the text stays visible
+  // (no toolbar, handles or outline), so she can see where it lands (Jo r14).
+  const [dragging, setDragging] = useState<"move" | "resize" | null>(null);
   useEffect(() => {
-    if (editing) setTimeout(() => textRef.current?.focus(), 0);
+    if (editing) {
+      setManualSize(false);
+      setTimeout(() => textRef.current?.focus(), 0);
+    }
   }, [editing]);
 
   const setTextColor = (color: string) =>
@@ -63,10 +73,16 @@ function BlockView({
   const patchStyle = (patch: Partial<Block>) =>
     void updateBlock(block, { ...block, ...patch, updatedAt: Date.now() });
   const fontSize = block.fontSize ?? TEXT_SIZE_PT;
+  // displayed size while editing: a comfortable minimum, unless she set it
+  const editW = manualSize ? block.w : Math.max(block.w, 280);
+  const editH = manualSize ? block.h : Math.max(block.h, 110);
   const dragState = useRef<{
     startX: number;
     startY: number;
+    /** geometry the drag starts from — the DISPLAYED size while editing */
     orig: Block;
+    /** the stored row, for the undo entry */
+    before: Block;
     mode: "move" | "resize";
     edges?: { l?: boolean; r?: boolean; t?: boolean; b?: boolean };
   } | null>(null);
@@ -88,6 +104,7 @@ function BlockView({
 
   const commitDrag = (e: PointerEvent | React.PointerEvent) => {
     const st = dragState.current;
+    setDragging(null);
     if (!st) return;
     dragState.current = null;
     const dx = (e.clientX - st.startX) / scale;
@@ -95,16 +112,17 @@ function BlockView({
     // Only a true no-op tap skips the write — a real pen nudge, however
     // small, must commit (the old <1-unit dead zone silently ate moves).
     if (dx === 0 && dy === 0) return;
+    if (st.mode === "resize" && editing) setManualSize(true);
     const after: Block =
       st.mode === "move"
         ? {
-            ...st.orig,
-            x: Math.max(0, Math.min(PAGE_W - st.orig.w, st.orig.x + dx)),
-            y: Math.max(0, Math.min(pageLogicalH - st.orig.h, st.orig.y + dy)),
+            ...st.before,
+            x: Math.max(0, Math.min(PAGE_W - st.before.w, st.orig.x + dx)),
+            y: Math.max(0, Math.min(pageLogicalH - st.before.h, st.orig.y + dy)),
             updatedAt: Date.now(),
           }
-        : { ...st.orig, ...resizedRect(st, dx, dy), updatedAt: Date.now() };
-    void updateBlock(st.orig, after);
+        : { ...st.before, ...resizedRect(st, dx, dy), updatedAt: Date.now() };
+    void updateBlock(st.before, after);
   };
 
   const startDrag = (
@@ -118,14 +136,24 @@ function BlockView({
     // Stop here regardless: letting the event reach the layer is what made
     // the text tool drop a NEW box on top of the one she aimed at (Jo r13).
     if (usable) e.stopPropagation();
-    if (!usable || editing) return;
+    if (!usable) return;
+    // While typing, a press on the box itself places the caret; the ✥ grip
+    // and the handles still move/resize it (Jo r14 — they were dead in
+    // editing mode).
+    if (editing && mode === "move" && !force) return;
+    // ...and must not steal keyboard focus from the text, or the box would
+    // blur, save and close mid-drag (cancelling pointerdown skips the
+    // mousedown that moves focus).
+    if (editing) e.preventDefault();
     // ctrl/⌘-click gathers items into one selection box so they move together
     if (e.ctrlKey || e.metaKey) {
       onCtrlPick?.(block.id);
       return;
     }
     ui.setSelectedBlockId(block.id);
-    dragState.current = { startX: e.clientX, startY: e.clientY, orig: block, mode, edges };
+    const orig = editing && !manualSize ? { ...block, w: editW, h: editH } : block;
+    dragState.current = { startX: e.clientX, startY: e.clientY, orig, before: block, mode, edges };
+    setDragging(mode);
     const el = e.currentTarget as HTMLElement;
     try {
       el.setPointerCapture(e.pointerId);
@@ -165,9 +193,10 @@ function BlockView({
       return;
     }
     // Shrink the box to fit its text (Jo: a full-size empty box blocks the
-    // pen near the words). Measure at natural size, then persist.
+    // pen near the words). Measure at natural size, then persist — unless
+    // she sized it herself during this edit (Jo r14).
     let fitted: Partial<Block> = {};
-    if (el && text.trim()) {
+    if (el && text.trim() && !manualSize) {
       const prev = { width: el.style.width, maxWidth: el.style.maxWidth, height: el.style.height };
       el.style.width = "max-content";
       el.style.maxWidth = `${PAGE_W * 0.7 * scale}px`;
@@ -192,16 +221,18 @@ function BlockView({
     }
   };
 
+  const moving = dragging === "move";
   return (
     <div
       data-block-id={block.id}
+      data-dragging={dragging ?? undefined}
       className="absolute"
       style={{
         left: cq(block.x),
         top: cq(block.y),
         // While editing, expand to a comfortable size; shrink-to-fit on Done.
-        width: cq(editing ? Math.max(block.w, 280) : block.w),
-        height: cq(editing ? Math.max(block.h, 110) : block.h),
+        width: cq(editing ? editW : block.w),
+        height: cq(editing ? editH : block.h),
         // A SELECTED block rises above the ink canvas and stays interactive
         // with ANY tool — tap-to-select (InkCanvas) then drag to move.
         zIndex: selected ? 45 : block.z,
@@ -209,7 +240,7 @@ function BlockView({
         // only taps on empty page area create a new one (Jo r13).
         pointerEvents:
           ui.tool === "select" || ui.tool === "text" || selected ? "auto" : "none",
-        outline: selected ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
+        outline: selected && !moving ? "2px solid #3b82f6" : "1px dashed rgba(59,130,246,0)",
         transform: undefined,
         // NONE, like every other drag surface: Windows treats a pen drag as
         // pannable "direct manipulation" — without this the browser stole the
@@ -252,7 +283,7 @@ function BlockView({
             onBlur={saveText}
             onPointerDown={(e) => editing && e.stopPropagation()}
             className={`h-full w-full whitespace-pre-wrap break-words leading-snug ${
-              editing ? "cursor-text bg-white/70 ring-1 ring-blue-300" : ""
+              editing && !moving ? "cursor-text bg-white/70 ring-1 ring-blue-300" : ""
             } ${block.type === "task" && block.checked ? "line-through opacity-60" : ""}`}
             style={{
               fontSize: cq(fontSize * 1.9),
@@ -289,7 +320,7 @@ function BlockView({
           </button>
           {/* 8 handles — same resize box as the ⬚ selection, but here the
               handles resize the ITEM itself (picture, text box, task) */}
-          {RESIZE_HANDLES.map((hd) => (
+          {!moving && RESIZE_HANDLES.map((hd) => (
             <div
               key={hd.key}
               data-resize-handle={hd.key}
@@ -300,11 +331,12 @@ function BlockView({
               onPointerUp={(e) => commitDrag(e)}
             />
           ))}
-          <div
+          {!dragging && <div
             className={`absolute flex flex-col gap-0.5 print:hidden ${
               // near the RIGHT edge the bar anchors right so it can't clip
-              // off the page (Jo: "right half gets cut off")
-              block.x * scale + 240 > pageWidth ? "right-0 items-end" : "left-0 items-start"
+              // off the page (Jo: "right half gets cut off"); on the left it
+              // starts clear of the ✥ grip, which it used to cover (Jo r14)
+              block.x * scale + 240 > pageWidth ? "right-0 items-end" : "left-7 items-start"
             }`}
             style={
               // near the TOP the bar flips below the box (Jo: "can't see the
@@ -466,7 +498,7 @@ function BlockView({
               Done
             </button>
             </div>
-          </div>
+          </div>}
         </>
       )}
     </div>
@@ -476,11 +508,11 @@ function BlockView({
 /** All blocks on one page + click-to-create for the text tool. */
 export default function BlocksLayer({
   pageId,
-  defaultFontSize = 12,
+  defaultFontSize = 10,
   autoEditFirst = false,
 }: {
   pageId: string;
-  /** Starting size for NEW text boxes (12 calendar / 18 notes — Jo). */
+  /** Starting size for NEW text boxes (10 calendar / 18 notes — Jo r14). */
   defaultFontSize?: number;
   /** Notes: the oldest text box opens ready to type on mount (Jo r11). */
   autoEditFirst?: boolean;

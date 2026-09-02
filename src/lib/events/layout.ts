@@ -1,5 +1,21 @@
 /** Pure math for chip drag-within-a-day (unit-tested; no DOM). */
 
+import type { EventKind, PlannerEvent } from "@/lib/db/types";
+
+/** Jo's order within a day (r14): birthdays, then appointments, then Google
+ *  Tasks; derived reminder chips last. Ties keep clock order, all-day first,
+ *  then title — the database handed them back in id order, i.e. shuffled. */
+const KIND_RANK: Record<EventKind, number> = { birthday: 0, event: 1, reminder: 2, notice: 3 };
+
+export function sortDayEvents<T extends Pick<PlannerEvent, "kind" | "startTime" | "title">>(rows: T[]): T[] {
+  return [...rows].sort(
+    (a, b) =>
+      KIND_RANK[a.kind] - KIND_RANK[b.kind] ||
+      (a.startTime ?? "").localeCompare(b.startTime ?? "") ||
+      a.title.localeCompare(b.title)
+  );
+}
+
 export interface Box {
   w: number;
   h: number;

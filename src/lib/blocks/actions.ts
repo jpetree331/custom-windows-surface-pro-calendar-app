@@ -44,9 +44,9 @@ export function makeTextBlock(
   content = "",
   type: "text" | "task" = "text",
   color?: string,
-  // Jo's defaults: 12pt on calendar pages, 18pt in notes (callers override).
-  // Pre-existing blocks keep rendering at the legacy 8pt fallback.
-  fontSize = 12
+  // Jo's defaults: 10pt on calendar pages (r14, was 12), 18pt in notes
+  // (callers override). Pre-existing blocks keep their own size.
+  fontSize = 10
 ): Block {
   const now = Date.now();
   return {
