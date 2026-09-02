@@ -40,11 +40,23 @@ export async function autoDriveBackup(opts?: {
     await uploadDriveBackup(token, blob, opts?.fetchImpl ?? fetch);
     localStorage.setItem(SEQ_KEY, String(lastSeq));
     localStorage.setItem(TIME_KEY, String(now));
+    await pruneSyncQueue(lastSeq);
     return "done";
   } catch (err) {
     console.warn("Drive auto-backup failed:", err);
     return "error";
   }
+}
+
+/**
+ * The queue is a dirty flag, not a replay log (the Supabase mirror never
+ * shipped) — yet it gained one row per pen stroke and never lost any, so a
+ * year of handwriting left tens of thousands of rows behind. Once a backup
+ * has captured everything up to `seq`, the rows before it are history. The
+ * newest row stays so the fresh-install guard above keeps working.
+ */
+async function pruneSyncQueue(seq: number) {
+  await db.syncQueue.where("seq").below(seq).delete();
 }
 
 /** Timestamp of the last successful Drive upload from this device, if any. */
@@ -58,4 +70,5 @@ export async function recordDriveBackup(now = Date.now()) {
   const last = await db.syncQueue.toCollection().last();
   localStorage.setItem(SEQ_KEY, String(last?.seq ?? 0));
   localStorage.setItem(TIME_KEY, String(now));
+  if (last?.seq) await pruneSyncQueue(last.seq);
 }

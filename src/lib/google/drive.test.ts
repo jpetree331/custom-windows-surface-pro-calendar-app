@@ -79,10 +79,13 @@ describe("autoDriveBackup gating", () => {
     // clean db (no queued changes at all)
     expect(await autoDriveBackup({ token: "t", fetchImpl: drive.fetchImpl })).toBe("clean");
 
-    // dirty → uploads
+    // dirty → uploads, and the rows the backup captured are swept (only the
+    // newest stays, so the fresh-install guard still sees "something written")
+    await db.syncQueue.add({ table: "strokes", rowId: "s0", op: "put", ts: 1 });
     await db.syncQueue.add({ table: "strokes", rowId: "s1", op: "put", ts: 1 });
     expect(await autoDriveBackup({ token: "t", fetchImpl: drive.fetchImpl, now: 10_000_000 })).toBe("done");
     expect(drive.store).toHaveLength(1);
+    expect((await db.syncQueue.toArray()).map((q) => q.rowId)).toEqual(["s1"]);
 
     // same seq again → clean
     expect(await autoDriveBackup({ token: "t", fetchImpl: drive.fetchImpl, now: 10_000_001 })).toBe("clean");
