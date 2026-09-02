@@ -44,9 +44,20 @@ const DATE_BLUE = hex("#3fa9f5");
 const LABEL_BLUE = hex("#2b6fb3");
 const GRID_BLUE = hex("#8fb8d0");
 
-/** Strip characters Helvetica/WinAnsi can't encode (emoji etc.). */
-function safe(text: string): string {
-  return [...text].filter((ch) => ch.charCodeAt(0) <= 255).join("");
+/**
+ * Strip characters Helvetica/WinAnsi can't encode (emoji etc.). Control
+ * characters are dropped too — pdf-lib THROWS on a carriage return, tab, DEL
+ * or a C1 control (0x80–0x9F), and text pasted from another Windows program
+ * carries CRLF line endings, so one such box used to kill the whole export
+ * silently. Newlines survive (the block renderer splits on them).
+ */
+export function safe(text: string): string {
+  return [...text.replace(/\r\n?/g, "\n").replace(/\t/g, " ")]
+    .filter((ch) => {
+      const c = ch.charCodeAt(0);
+      return c === 10 || (c >= 32 && c <= 255 && c !== 127 && !(c >= 128 && c <= 159));
+    })
+    .join("");
 }
 
 interface Ctx {
@@ -595,6 +606,25 @@ function drawBirthdays(ctx: Ctx, page: PDFPage) {
 
 /* ----------------------------- ink & blocks ----------------------------- */
 
+/**
+ * pdf-lib only embeds PNG and JPEG. Anything else Jo inserted (a GIF, WebP,
+ * BMP screenshot…) is rasterized to PNG through the browser first, so the
+ * picture prints instead of silently vanishing. Returns null where the
+ * browser can't help (Node/tests) or the bytes aren't an image at all.
+ */
+async function embedImage(ctx: Ctx, bytes: Uint8Array) {
+  const isPng = bytes[0] === 0x89 && bytes[1] === 0x50;
+  const isJpg = bytes[0] === 0xff && bytes[1] === 0xd8;
+  if (isPng) return ctx.doc.embedPng(bytes);
+  if (isJpg) return ctx.doc.embedJpg(bytes);
+  if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return null;
+  const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]));
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+  const png = new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
+  return ctx.doc.embedPng(png);
+}
+
 function strokeToSvgPath(stroke: Stroke): string {
   const hasRealPressure = stroke.points.some((pt) => pt[2] !== 0.5);
   const outline = getStroke(stroke.points, {
@@ -618,9 +648,8 @@ async function drawBlocksAndInk(ctx: Ctx, page: PDFPage, p: Page) {
     if (b.type === "image" && b.imageBlob) {
       try {
         const bytes = new Uint8Array(await b.imageBlob.arrayBuffer());
-        const isPng = bytes[0] === 0x89 && bytes[1] === 0x50;
-        const img = isPng ? await ctx.doc.embedPng(bytes) : await ctx.doc.embedJpg(bytes);
-        page.drawImage(img, { x: px(b.x), y: py(b.y + b.h), width: b.w * S, height: b.h * S });
+        const img = await embedImage(ctx, bytes);
+        if (img) page.drawImage(img, { x: px(b.x), y: py(b.y + b.h), width: b.w * S, height: b.h * S });
       } catch {
         // unsupported format — skip rather than fail the export
       }
@@ -746,9 +775,12 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
         : allPages.filter((p) => p.id === opts.pageId);
   if (pages.length === 0) throw new Error("Nothing to export");
 
+  // Only the pages being exported: a one-page export must not haul a year of
+  // ink plus every note's image bytes into memory.
+  const pageIds = pages.map((p) => p.id);
   const [strokes, blocks, events, categories, habits, checks, sideButtonRows] = await Promise.all([
-    db.strokes.toArray(), // grouped by globally-unique pageId — safe unfiltered
-    db.blocks.toArray(),
+    db.strokes.where("pageId").anyOf(pageIds).toArray(),
+    db.blocks.where("pageId").anyOf(pageIds).toArray(),
     // eventsByDate is keyed by date string, so events MUST be planner-scoped
     // (a restored backup can leave a second planner for the same year).
     db.events.where("plannerId").equals(planner.id).toArray(),

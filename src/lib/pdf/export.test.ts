@@ -149,6 +149,23 @@ describe("exportPdf", () => {
     expect((dest.get(0) as PDFRef).toString()).toBe(doc.getPage(julIdx).ref.toString());
   }, 30000);
 
+  it("text pasted from Windows (CRLF, tabs, stray control bytes) still exports", async () => {
+    const pages = await db.pages.where("plannerId").equals(PLANNER_ID).sortBy("index");
+    const wk = pages.find((p) => p.dateStart === "2026-07-06")!;
+    // exactly what a clipboard paste from Notepad looks like — pdf-lib throws
+    // on every one of these bytes, which used to kill the whole download
+    await db.blocks.add({
+      id: "b-crlf", pageId: wk.id, type: "text", x: 80, y: 600, w: 300, h: 80, z: 3,
+      content: "milk\r\neggs\tbutter\r", createdAt: 1, updatedAt: 1,
+    });
+    const bytes = await exportPdf({ scope: "page", pageId: wk.id, todayISO: "2026-07-08" });
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBe(1);
+    const { safe } = await import("./export");
+    expect(safe("milk\r\neggs\tbutter\r")).toBe("milk\neggs butter\n");
+    expect(safe("Full Moon 🎂")).toBe("Full Moon "); // Latin-1 keeps, emoji goes
+  }, 30000);
+
   it("single page export produces exactly one page", async () => {
     const pages = await db.pages.where("plannerId").equals(PLANNER_ID).sortBy("index");
     const wk = pages.find((p) => p.dateStart === "2026-07-06")!;

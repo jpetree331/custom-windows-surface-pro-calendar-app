@@ -718,23 +718,29 @@ export default function PlannerShell() {
 
   const onExport = useCallback(
     async (req: { scope: "year" | "page" | "range"; fromIndex?: number; toIndex?: number }) => {
-      const { exportPdf } = await import("@/lib/pdf/export");
-      const pageId = req.scope === "page" ? (viewportCenterPageId() ?? undefined) : undefined;
-      const bytes = await exportPdf({
-        scope: req.scope,
-        pageId,
-        fromIndex: req.fromIndex,
-        toIndex: req.toIndex,
-        plannerId: planner?.id,
-      });
-      const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
-      const name =
-        req.scope === "year"
-          ? `${PLANNER_SLUG}-${planner?.year ?? ""}.pdf`
-          : req.scope === "range"
-            ? `${PLANNER_SLUG}-pages-${(req.fromIndex ?? 0) + 1}-${(req.toIndex ?? 0) + 1}.pdf`
-            : `${PLANNER_SLUG}-page.pdf`;
-      await saveFile(name, blob); // chosen folder if set, else browser download
+      try {
+        const { exportPdf } = await import("@/lib/pdf/export");
+        const pageId = req.scope === "page" ? (viewportCenterPageId() ?? undefined) : undefined;
+        const bytes = await exportPdf({
+          scope: req.scope,
+          pageId,
+          fromIndex: req.fromIndex,
+          toIndex: req.toIndex,
+          plannerId: planner?.id,
+        });
+        const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
+        const name =
+          req.scope === "year"
+            ? `${PLANNER_SLUG}-${planner?.year ?? ""}.pdf`
+            : req.scope === "range"
+              ? `${PLANNER_SLUG}-pages-${(req.fromIndex ?? 0) + 1}-${(req.toIndex ?? 0) + 1}.pdf`
+              : `${PLANNER_SLUG}-page.pdf`;
+        await saveFile(name, blob); // chosen folder if set, else browser download
+      } catch (err) {
+        // A failed export used to vanish into the console — Jo just saw the
+        // button do nothing. Say so, with the reason.
+        window.alert(`Couldn't make the PDF: ${err instanceof Error ? err.message : String(err)}`);
+      }
     },
     [viewportCenterPageId, planner]
   );
