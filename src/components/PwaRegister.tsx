@@ -14,34 +14,42 @@ export default function PwaRegister() {
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       if (process.env.NODE_ENV === "production") {
+        // Pick up a new deploy without needing a full app relaunch: an
+        // installed PWA that's only ever resumed kept running whatever
+        // bundle it loaded first (Jo r12).
+        // Reload into the new build at a SAFE moment: every text surface
+        // in this app commits on blur, so an instant reload would discard
+        // whatever Jo was mid-way through typing (r12 review). Wait until
+        // nothing is being edited, or until she switches away.
+        let pendingReload = false;
+        const editingNow = () => {
+          const el = document.activeElement as HTMLElement | null;
+          return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA"].includes(el.tagName));
+        };
+        const reloadWhenSafe = () => {
+          if (!pendingReload) return;
+          if (document.visibilityState === "hidden" || !editingNow()) window.location.reload();
+        };
+        // The worker calls skipWaiting()+clients.claim(), so a new build
+        // taking over this page fires controllerchange. Listening here (not
+        // on updatefound) can't miss an install that began before the
+        // registration promise resolved. The very first install claims the
+        // page too — that isn't an update, so one claim is ignored when the
+        // page loaded uncontrolled.
+        let claimsToIgnore = navigator.serviceWorker.controller ? 0 : 1;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (claimsToIgnore > 0) {
+            claimsToIgnore--;
+            return;
+          }
+          pendingReload = true;
+          reloadWhenSafe();
+        });
+        // sw.js is served by src/app/sw.js/route.ts with the build id baked
+        // in, so every deploy changes its bytes and the browser installs it.
         void navigator.serviceWorker
           .register("/sw.js")
           .then((reg) => {
-            // Pick up a new deploy without needing a full app relaunch: an
-            // installed PWA that's only ever resumed kept running whatever
-            // bundle it loaded first (Jo r12).
-            // Reload into the new build at a SAFE moment: every text surface
-            // in this app commits on blur, so an instant reload would discard
-            // whatever Jo was mid-way through typing (r12 review). Wait until
-            // nothing is being edited, or until she switches away.
-            let pendingReload = false;
-            const editingNow = () => {
-              const el = document.activeElement as HTMLElement | null;
-              return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA"].includes(el.tagName));
-            };
-            const reloadWhenSafe = () => {
-              if (!pendingReload) return;
-              if (document.visibilityState === "hidden" || !editingNow()) window.location.reload();
-            };
-            reg.addEventListener("updatefound", () => {
-              const fresh = reg.installing;
-              fresh?.addEventListener("statechange", () => {
-                if (fresh.state === "installed" && navigator.serviceWorker.controller) {
-                  pendingReload = true;
-                  reloadWhenSafe();
-                }
-              });
-            });
             document.addEventListener("focusout", () => setTimeout(reloadWhenSafe, 250));
             // check on resume, not just on first load; and if an update is
             // already waiting, going away is the safest time to apply it

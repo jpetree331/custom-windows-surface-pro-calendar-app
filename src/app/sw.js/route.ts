@@ -1,11 +1,22 @@
-/* Jo's Planner service worker — offline-first shell.
-   Static assets: cache-first. Navigations: network-first with cache fallback.
+/**
+ * The service worker, served from a route instead of public/ so that every
+ * build produces DIFFERENT bytes. The browser only installs a new worker when
+ * the script changes, and PwaRegister only reloads a resumed app when a new
+ * worker takes over — so a static sw.js with a hand-bumped cache name meant
+ * a release that forgot the bump (round 13 did) never reached an installed
+ * app that was resumed rather than relaunched. Now the build id is baked in.
+ *
+ * `force-static`: rendered once at build time, so the id is fixed per deploy
+ * (Vercel's commit sha when available, else the build's timestamp).
+ */
+export const dynamic = "force-static";
 
-   BUMP THIS on any release that must reach an installed app promptly. The
-   browser only re-installs the worker when these bytes change, and the old
-   caches are only swept when the name differs — a fixed name meant a stale
-   install could keep serving old code indefinitely (Jo r12). */
-const CACHE = "jotter-v2-r12";
+const BUILD_ID = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || String(Date.now());
+
+const script = `/* Jo's Planner service worker — offline-first shell (build ${BUILD_ID}).
+   Static assets: cache-first. Navigations: network-first with cache fallback.
+   The cache is named per build, so activating a new build sweeps the old one. */
+const CACHE = "jotter-${BUILD_ID}";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(["/"])));
@@ -56,3 +67,15 @@ self.addEventListener("fetch", (event) => {
     )
   );
 });
+`;
+
+export function GET() {
+  return new Response(script, {
+    headers: {
+      "Content-Type": "application/javascript; charset=utf-8",
+      // the browser re-checks this script on its own schedule; never let a
+      // proxy hand back last week's build
+      "Cache-Control": "no-cache",
+    },
+  });
+}
