@@ -1,3 +1,5 @@
+"use client";
+
 import type { Page } from "@/lib/db/types";
 import { addDays, fromISO, toISO, DAY_ABBR } from "@/lib/planner/dates";
 import { holidaysForYear } from "@/lib/calendar/holidays";
@@ -5,6 +7,7 @@ import { moonPhasesForYear } from "@/lib/calendar/moon";
 import PageFrame, { LabelPill } from "./PageFrame";
 import EventChips from "../EventChips";
 import WeekReminders from "../WeekReminders";
+import { usePlannerUI } from "../ui-context";
 
 const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
@@ -12,8 +15,8 @@ const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 export default function WeekPage({ page }: { page: Page }) {
   const monday = fromISO(page.dateStart);
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-  // computed at render — a fresh mount (page flip, app open) re-evaluates
-  const todayISO = toISO(new Date());
+  // live from context: rolls over at midnight even if this page stays mounted
+  const { todayISO } = usePlannerUI();
   // Per-day lookup (memoized per year) — edge weeks span adjacent years.
   const marksFor = (d: Date) => {
     const iso = toISO(d);

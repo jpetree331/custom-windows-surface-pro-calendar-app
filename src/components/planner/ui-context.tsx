@@ -18,6 +18,9 @@ export interface PlannerUI {
   plannerId: string;
   /** Active planner year (for templates that print it, e.g. Birthdays). */
   year: number;
+  /** Today's ISO date, rolled over at midnight and on resume — so the TODAY
+   *  outline and past-event fade move on a tablet left open overnight. */
+  todayISO: string;
   tool: ToolId;
   penColor: string;
   penWidth: number;

@@ -19,7 +19,7 @@ function stillPending(n: { parentDate?: string; date: string }, todayISO: string
  * Renders a fragment so the chips flow in the panel's flex-wrap row.
  */
 export default function WeekReminders({ weekStartISO }: { weekStartISO: string }) {
-  const { plannerId } = usePlannerUI();
+  const { plannerId, todayISO } = usePlannerUI();
   const weekEndISO = toISO(addDays(fromISO(weekStartISO), 6));
   const notices = useLiveQuery(
     () =>
@@ -29,7 +29,6 @@ export default function WeekReminders({ weekStartISO }: { weekStartISO: string }
         .toArray(),
     [plannerId, weekStartISO, weekEndISO]
   );
-  const todayISO = toISO(new Date());
   const pending = (notices ?? []).filter((n) => stillPending(n, todayISO));
   if (pending.length === 0) return null;
   return (

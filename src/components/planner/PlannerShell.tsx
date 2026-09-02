@@ -105,6 +105,34 @@ export default function PlannerShell() {
   const [timeFormat, setTimeFormatState] = useState<TimeFormat>("12h");
   useEffect(() => setTimeFormatState(getTimeFormat()), []);
 
+  // "Today" is live: pages read it from context, so an app left open past
+  // midnight moves its TODAY outline and past-event fade without a relaunch.
+  // A timer fires at the next local midnight; timers are throttled in a
+  // hidden tab, so resume re-checks too.
+  const [todayISO, setTodayISO] = useState(() => toISO(new Date()));
+  useEffect(() => {
+    let timer = 0;
+    const refresh = () => {
+      const now = new Date();
+      setTodayISO((prev) => {
+        const next = toISO(now);
+        return prev === next ? prev : next;
+      });
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 2);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(refresh, midnight.getTime() - now.getTime());
+    };
+    refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   // Layout Options (Jo's Drawboard defaults: Single Page + Fit to Page)
   const [viewSettings, setViewSettings] = useState<ViewSettings>(DEFAULT_VIEW_SETTINGS);
   const [singleIndex, setSingleIndex] = useState(0);
@@ -361,6 +389,7 @@ export default function PlannerShell() {
     () => ({
       plannerId: planner?.id ?? "",
       year: planner?.year ?? PLANNER_YEAR,
+      todayISO,
       tool,
       penColor,
       penWidth,
@@ -400,7 +429,7 @@ export default function PlannerShell() {
       },
       flipPage,
     }),
-    [planner?.id, planner?.year, tool, penColor, penWidth, eraserRadius, selectedBlockId, selection, timeFormat, currentPageId, jumpToIndex, flipPage]
+    [planner?.id, planner?.year, todayISO, tool, penColor, penWidth, eraserRadius, selectedBlockId, selection, timeFormat, currentPageId, jumpToIndex, flipPage]
   );
 
   const jumpToMonth = useCallback(

@@ -8,7 +8,6 @@ import { usePlannerUI } from "./ui-context";
 import { formatTime } from "@/lib/settings";
 import { moveEventChip, resetEventChipPosition, setEventDone } from "@/lib/events/actions";
 import { clampChipOffset } from "@/lib/events/layout";
-import { toISO } from "@/lib/planner/dates";
 
 /**
  * Colored event/birthday chips for one day cell (week + month templates).
@@ -36,7 +35,7 @@ export default function EventChips({
   /** Space kept clear on the right — the moon glyph's corner. */
   reserveRight?: string;
 }) {
-  const { plannerId, timeFormat, tool } = usePlannerUI();
+  const { plannerId, timeFormat, tool, todayISO } = usePlannerUI();
   const rootRef = useRef<HTMLDivElement>(null);
   const events = useLiveQuery(
     // planner-scoped: a restored backup can leave a second same-year planner.
@@ -84,7 +83,6 @@ export default function EventChips({
   const flow = events.filter((e) => e.offsetX == null);
   const pinned = events.filter((e) => e.offsetX != null);
   const maxFlow = compact ? 3 : 6;
-  const todayISO = toISO(new Date());
 
   const openPopover = (e: PlannerEvent, chipEl: HTMLElement) => {
     const r = chipEl.getBoundingClientRect();
