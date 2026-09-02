@@ -4,7 +4,11 @@ import { queueSync } from "@/lib/sync";
 import { mondayOf, fromISO, toISO } from "@/lib/planner/dates";
 
 export async function addHabit(plannerId: string, name: string, cadence: HabitCadence): Promise<Habit> {
-  const order = await db.habits.where("plannerId").equals(plannerId).count();
+  // max+1, not the row count: after a delete the count collides with an
+  // existing order and the new habit lands mid-list (the sidebar had the
+  // same bug, Jo r13)
+  const existing = await db.habits.where("plannerId").equals(plannerId).toArray();
+  const order = existing.reduce((m, h) => Math.max(m, h.order), -1) + 1;
   const habit: Habit = { id: crypto.randomUUID(), plannerId, name, cadence, order, active: true };
   await db.habits.add(habit);
   await queueSync("habits", habit.id, "put");

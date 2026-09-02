@@ -37,6 +37,18 @@ describe("habits", () => {
     expect(await db.habitChecks.count()).toBe(1);
   });
 
+  it("a habit added after a delete goes to the END of the list", async () => {
+    await addHabit(PLANNER_ID, "A", "daily");
+    const b = await addHabit(PLANNER_ID, "B", "daily");
+    await addHabit(PLANNER_ID, "C", "daily");
+    await deleteHabit(b.id);
+    await addHabit(PLANNER_ID, "D", "daily");
+    const names = (await db.habits.where("plannerId").equals(PLANNER_ID).sortBy("order")).map((h) => h.name);
+    expect(names).toEqual(["A", "C", "D"]);
+    const orders = (await db.habits.where("plannerId").equals(PLANNER_ID).toArray()).map((h) => h.order);
+    expect(new Set(orders).size).toBe(orders.length); // no collisions
+  });
+
   it("rename and delete (checks cascade)", async () => {
     const h = await addHabit(PLANNER_ID, "Read", "daily");
     await renameHabit(h.id, "Read 10 pages");
@@ -78,6 +90,16 @@ describe("categories", () => {
     await db.categories.add({ id: "mine", plannerId: PLANNER_ID, name: "My Thing", color: "#111111", order: 0 });
     await ensureStarterCategories(PLANNER_ID);
     expect(await db.categories.where("plannerId").equals(PLANNER_ID).count()).toBe(1);
+  });
+
+  it("a category added after a delete goes to the END of the list", async () => {
+    await ensureStarterCategories(PLANNER_ID);
+    const cats = await db.categories.where("plannerId").equals(PLANNER_ID).sortBy("order");
+    await deleteCategory(cats[2].id);
+    const added = await addCategory(PLANNER_ID, "Garden", "#00ff00");
+    const after = await db.categories.where("plannerId").equals(PLANNER_ID).sortBy("order");
+    expect(after.at(-1)?.id).toBe(added.id);
+    expect(new Set(after.map((c) => c.order)).size).toBe(after.length);
   });
 
   it("add / rename / recolor propagate; delete untags blocks", async () => {

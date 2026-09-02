@@ -41,7 +41,10 @@ export async function ensureStarterCategories(plannerId: string) {
 }
 
 export async function addCategory(plannerId: string, name: string, color: string): Promise<Category> {
-  const order = await db.categories.where("plannerId").equals(plannerId).count();
+  // max+1, not the row count — a count collides with an existing order once
+  // anything has been deleted, and the new category lands mid-list
+  const existing = await db.categories.where("plannerId").equals(plannerId).toArray();
+  const order = existing.reduce((m, c) => Math.max(m, c.order), -1) + 1;
   const cat: Category = { id: crypto.randomUUID(), plannerId, name, color, order };
   await db.categories.add(cat);
   await queueSync("categories", cat.id, "put");
