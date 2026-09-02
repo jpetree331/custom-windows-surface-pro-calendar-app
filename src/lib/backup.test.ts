@@ -84,6 +84,36 @@ describe("backup round-trip", () => {
     expect(await db.blocks.count()).toBe(3);
   });
 
+  it("keeps a text box edited AFTER the backup was taken", async () => {
+    const json = await (await createBackup()).text();
+    await db.blocks.update("b1", { content: "edited since", updatedAt: 50 });
+    await db.notes.update("n1", { title: "Renamed since", updatedAt: 50 });
+    const { kept } = await restoreBackup(json);
+    expect((await db.blocks.get("b1"))?.content).toBe("edited since");
+    expect((await db.notes.get("n1"))?.title).toBe("Renamed since");
+    expect(kept).toBe(2);
+  });
+
+  it("a newer backup still replaces older local rows", async () => {
+    await db.blocks.update("b1", { content: "from backup", updatedAt: 90 });
+    const json = await (await createBackup()).text();
+    await db.blocks.update("b1", { content: "stale", updatedAt: 3 });
+    await restoreBackup(json);
+    expect((await db.blocks.get("b1"))?.content).toBe("from backup");
+  });
+
+  it("page indexes stay unique after restoring a page deleted since", async () => {
+    const { deletePage } = await import("@/lib/blocks/actions");
+    const json = await (await createBackup()).text();
+    const victim = (await db.pages.where("plannerId").equals(PLANNER_ID).sortBy("index"))[10];
+    await deletePage(victim.id); // shifts every later page down one
+    await restoreBackup(json); // brings the page back at its OLD index
+    const pages = await db.pages.where("plannerId").equals(PLANNER_ID).sortBy("index");
+    expect(pages).toHaveLength(79);
+    expect(pages.map((p) => p.index)).toEqual(pages.map((_, i) => i));
+    expect(pages.some((p) => p.id === victim.id)).toBe(true);
+  });
+
   it("rejects files that are not planner backups", async () => {
     await expect(restoreBackup(JSON.stringify({ hello: 1 }))).rejects.toThrow(/Not a Jo's Planner backup/);
     await expect(restoreBackup(JSON.stringify({ format: "jotter-backup", version: 99, tables: {} })))

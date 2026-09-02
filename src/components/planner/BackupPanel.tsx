@@ -43,10 +43,12 @@ export default function BackupPanel() {
         setStatus("No Drive backup found for this Google account yet.");
         return;
       }
-      const { restored } = await restoreBackup(found.json);
+      const { restored, kept } = await restoreBackup(found.json);
       const total = Object.values(restored).reduce((a, b) => a + b, 0);
       setStatus(
-        `Restored ${total} items from the Drive backup of ${new Date(found.modifiedTime).toLocaleString()}. Newer local work was kept.`
+        `Restored ${total} items from the Drive backup of ${new Date(found.modifiedTime).toLocaleString()}.${
+          kept ? ` ${kept} newer local item(s) were kept as they are.` : ""
+        }`
       );
     } catch (err) {
       setStatus(String(err instanceof Error ? err.message : err));
@@ -73,9 +75,13 @@ export default function BackupPanel() {
 
   const restore = async (file: File) => {
     try {
-      const { restored } = await restoreBackup(await file.text());
+      const { restored, kept } = await restoreBackup(await file.text());
       const total = Object.values(restored).reduce((a, b) => a + b, 0);
-      setStatus(`Restored ${total} items (${restored.strokes} strokes, ${restored.blocks} blocks). Existing newer work was kept.`);
+      setStatus(
+        `Restored ${total} items (${restored.strokes} strokes, ${restored.blocks} blocks).${
+          kept ? ` ${kept} newer local item(s) were kept as they are.` : ""
+        }`
+      );
     } catch (err) {
       setStatus(String(err instanceof Error ? err.message : err));
     }

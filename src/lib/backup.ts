@@ -1,6 +1,7 @@
 import { db } from "@/lib/db/db";
 import type { Block } from "@/lib/db/types";
 import { purgeMoonPhaseDuplicates } from "@/lib/google/import";
+import { clearPathCache } from "@/lib/ink/render";
 
 /**
  * Full-planner backup: every table serialized to one JSON file (image blobs
@@ -83,6 +84,67 @@ export async function createBackup(): Promise<Blob> {
 
 export interface RestoreResult {
   restored: Record<string, number>;
+  /** Rows the backup carried that were OLDER than what this device already
+   *  had — left alone, so a restore can never roll back recent work. */
+  kept: number;
+}
+
+/** Tables whose rows carry updatedAt, so a restore can compare recency. */
+const STAMPED = new Set(["planners", "pages", "blocks", "events", "notes"]);
+
+interface MergeTable {
+  bulkGet(keys: string[]): Promise<(unknown | undefined)[]>;
+  bulkPut(rows: never[]): Promise<unknown>;
+}
+
+/**
+ * Upsert by id, but where both sides carry updatedAt the newer one wins:
+ * bulkPut alone would have overwritten a text box edited five minutes ago
+ * with its state at backup time — the opposite of the "never erases newer
+ * work" promise the Backup panel makes. Tables without a timestamp (ink,
+ * habits, checks) still upsert as before.
+ */
+async function mergeRows(
+  name: string,
+  table: MergeTable,
+  rows: unknown[]
+): Promise<{ written: number; kept: number }> {
+  if (!STAMPED.has(name)) {
+    await table.bulkPut(rows as never[]);
+    return { written: rows.length, kept: 0 };
+  }
+  const stamped = rows as { id: string; updatedAt?: number }[];
+  const existing = (await table.bulkGet(stamped.map((r) => r.id))) as
+    ({ updatedAt?: number } | undefined)[];
+  const fresh = stamped.filter((r, i) => {
+    const cur = existing[i];
+    return !(
+      cur &&
+      typeof cur.updatedAt === "number" &&
+      typeof r.updatedAt === "number" &&
+      cur.updatedAt > r.updatedAt
+    );
+  });
+  await table.bulkPut(fresh as never[]);
+  return { written: fresh.length, kept: rows.length - fresh.length };
+}
+
+/**
+ * Restoring a backup taken BEFORE a page was deleted brings that page back
+ * with its old index — which another page now occupies. Renumber each
+ * planner's pages 0…n-1 (stable on index, then age) so the feed order is
+ * unambiguous again.
+ */
+async function normalizePageIndexes() {
+  for (const p of await db.planners.toArray()) {
+    const pages = await db.pages.where("plannerId").equals(p.id).toArray();
+    pages.sort((a, b) => a.index - b.index || a.updatedAt - b.updatedAt);
+    await db.transaction("rw", db.pages, async () => {
+      for (let i = 0; i < pages.length; i++) {
+        if (pages[i].index !== i) await db.pages.update(pages[i].id, { index: i });
+      }
+    });
+  }
 }
 
 export async function restoreBackup(json: string): Promise<RestoreResult> {
@@ -102,13 +164,15 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
   });
 
   const restored: Record<string, number> = {};
+  let kept = 0;
   await db.transaction(
     "rw",
     [db.planners, db.pages, db.strokes, db.blocks, db.habits, db.habitChecks, db.categories, db.events, db.sideButtons, db.notes],
     async () => {
-      const put = async (name: string, table: { bulkPut(rows: never[]): Promise<unknown> }, rows: unknown[]) => {
-        await table.bulkPut(rows as never[]);
-        restored[name] = rows.length;
+      const put = async (name: string, table: MergeTable, rows: unknown[]) => {
+        const r = await mergeRows(name, table, rows);
+        restored[name] = r.written;
+        kept += r.kept;
       };
       await put("planners", db.planners, data.tables.planners ?? []);
       await put("pages", db.pages, data.tables.pages ?? []);
@@ -123,10 +187,14 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
       await put("notes", db.notes, data.tables.notes ?? []);
     }
   );
+  await normalizePageIndexes();
+  // Restored strokes may share ids with cached outlines from before (a stroke
+  // moved locally, then restored to its old spot) — never draw the stale one.
+  clearPathCache();
   // A snapshot taken before Jo unsubscribed would otherwise re-import her
   // moon-phase chips wholesale (Jo r12).
   for (const p of await db.planners.toArray()) await purgeMoonPhaseDuplicates(p.id);
-  return { restored };
+  return { restored, kept };
 }
 
 /**
