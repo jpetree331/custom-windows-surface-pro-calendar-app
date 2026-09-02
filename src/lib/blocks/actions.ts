@@ -149,9 +149,11 @@ export async function pasteClipboardBlock(pageId: string): Promise<Block | null>
 export async function carryTaskForward(block: Block): Promise<Page | null> {
   const page = await db.pages.get(block.pageId);
   if (!page || page.type !== "week") return null;
+  // originals only: a duplicated week page keeps its dates and would
+  // otherwise catch the task instead of the real next week
   const nextWeek = await db.pages
     .where("plannerId").equals(page.plannerId)
-    .and((p) => p.type === "week" && p.dateStart > page.dateStart)
+    .and((p) => p.type === "week" && !p.meta?.isCopy && p.dateStart > page.dateStart)
     .sortBy("dateStart")
     .then((arr) => arr[0]);
   if (!nextWeek) return null;

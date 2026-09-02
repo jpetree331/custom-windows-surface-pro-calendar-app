@@ -130,18 +130,16 @@ export default function SelectionOverlay() {
   const px = (u: number) => u * scale;
 
   const commitMove = async (dxPx: number, dyPx: number) => {
-    const dx = dxPx / scale;
-    const dy = dyPx / scale;
+    // Clamp the BOX to the page first and move the contents by the same
+    // amount — moving them by the raw drag while the box stopped at the edge
+    // left the dashed box no longer around what it selected.
+    const x = Math.max(0, Math.min(PAGE_W - sel.rect.w, sel.rect.x + dxPx / scale));
+    const y = Math.max(0, Math.min(PAGE_H - sel.rect.h, sel.rect.y + dyPx / scale));
+    const dx = x - sel.rect.x;
+    const dy = y - sel.rect.y;
     if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
     await moveSelectionContents(sel, dx, dy);
-    ui.setSelection({
-      ...sel,
-      rect: {
-        ...sel.rect,
-        x: Math.max(0, Math.min(PAGE_W - sel.rect.w, sel.rect.x + dx)),
-        y: Math.max(0, Math.min(PAGE_H - sel.rect.h, sel.rect.y + dy)),
-      },
-    });
+    ui.setSelection({ ...sel, rect: { ...sel.rect, x, y } });
   };
 
   return (

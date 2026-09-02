@@ -70,7 +70,9 @@ export default function TopBar({
         {yearMenu && (
           <div
             data-year-menu
-            className="absolute right-0 top-9 z-50 w-36 rounded-b-lg border border-slate-200 bg-white py-1 shadow-xl"
+            // z-band 3000+: a note window parked top-right (1000–2600) used
+            // to cover this menu (Jo r11 bands)
+            className="absolute right-0 top-9 z-[3000] w-36 rounded-b-lg border border-slate-200 bg-white py-1 shadow-xl"
           >
             {years.map((y) => (
               <button

@@ -85,6 +85,18 @@ describe("carryTaskForward", () => {
     expect(carried[0].id).not.toBe(task.id);
   });
 
+  it("skips a duplicated week page and lands on the real next week", async () => {
+    const pages = await db.pages.toArray();
+    const wk28 = pages.find((p) => p.dateStart === "2026-07-06")!;
+    const wk29 = pages.find((p) => p.dateStart === "2026-07-13")!;
+    const copy = (await duplicatePage(wk29.id))!; // same dates, meta.isCopy
+    const task = makeTextBlock(wk28.id, 100, 100, "call the vet", "task");
+    await addBlock(task);
+    const target = await carryTaskForward(task);
+    expect(target?.id).toBe(wk29.id);
+    expect(target?.id).not.toBe(copy.id);
+  });
+
   it("does nothing for a non-week page", async () => {
     const pages = await db.pages.toArray();
     const year = pages.find((p) => p.type === "year")!;
