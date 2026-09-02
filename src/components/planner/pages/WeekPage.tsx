@@ -9,8 +9,6 @@ import EventChips from "../EventChips";
 import WeekReminders from "../WeekReminders";
 import { usePlannerUI } from "../ui-context";
 
-const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
-
 /** Weekly spread: 7 day rows left, TASKS / REMINDERS / HABITS column right. */
 export default function WeekPage({ page }: { page: Page }) {
   const monday = fromISO(page.dateStart);
@@ -58,7 +56,7 @@ export default function WeekPage({ page }: { page: Page }) {
                     className="flex flex-1 flex-col items-center justify-center font-bold leading-[1.05] text-black"
                     style={{ fontSize: "2.2cqw" }}
                   >
-                    {DAY_LETTERS[i].split("").map((ch, j) => (
+                    {DAY_ABBR[i].split("").map((ch, j) => (
                       <span key={j}>{ch}</span>
                     ))}
                   </div>

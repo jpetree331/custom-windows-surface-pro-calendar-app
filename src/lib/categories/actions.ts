@@ -1,6 +1,7 @@
 import { db } from "@/lib/db/db";
 import type { Category } from "@/lib/db/types";
 import { queueSync } from "@/lib/sync";
+import { nextOrder } from "@/lib/order";
 
 /** Starter set = Jo's category color system (fully editable in ⚙). */
 export const STARTERS: { name: string; color: string }[] = [
@@ -41,10 +42,7 @@ export async function ensureStarterCategories(plannerId: string) {
 }
 
 export async function addCategory(plannerId: string, name: string, color: string): Promise<Category> {
-  // max+1, not the row count — a count collides with an existing order once
-  // anything has been deleted, and the new category lands mid-list
-  const existing = await db.categories.where("plannerId").equals(plannerId).toArray();
-  const order = existing.reduce((m, c) => Math.max(m, c.order), -1) + 1;
+  const order = nextOrder(await db.categories.where("plannerId").equals(plannerId).toArray());
   const cat: Category = { id: crypto.randomUUID(), plannerId, name, color, order };
   await db.categories.add(cat);
   await queueSync("categories", cat.id, "put");

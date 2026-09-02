@@ -2,13 +2,10 @@ import { db } from "@/lib/db/db";
 import type { Habit, HabitCadence } from "@/lib/db/types";
 import { queueSync } from "@/lib/sync";
 import { mondayOf, fromISO, toISO } from "@/lib/planner/dates";
+import { nextOrder } from "@/lib/order";
 
 export async function addHabit(plannerId: string, name: string, cadence: HabitCadence): Promise<Habit> {
-  // max+1, not the row count: after a delete the count collides with an
-  // existing order and the new habit lands mid-list (the sidebar had the
-  // same bug, Jo r13)
-  const existing = await db.habits.where("plannerId").equals(plannerId).toArray();
-  const order = existing.reduce((m, h) => Math.max(m, h.order), -1) + 1;
+  const order = nextOrder(await db.habits.where("plannerId").equals(plannerId).toArray());
   const habit: Habit = { id: crypto.randomUUID(), plannerId, name, cadence, order, active: true };
   await db.habits.add(habit);
   await queueSync("habits", habit.id, "put");

@@ -501,19 +501,6 @@ export default function PlannerShell() {
    *  INTO the note, not onto the calendar page hidden behind it (r11 review). */
   const activeNoteRef = useRef<string | null>(null);
 
-  /** Paste the ⬚ clipboard onto the page in view, centered, and SELECT the
-   *  result so it's visibly there and immediately draggable. Honors a
-   *  focused note, so ink cut from a calendar page lands IN the note she's
-   *  looking at rather than the page behind it (Jo r12). */
-  const pasteSelectionCentered = useCallback(async () => {
-    if (!hasSelectionClipboard()) return false;
-    const pageId = pasteTargetPageId();
-    if (!pageId) return false;
-    const result = await pasteSelectionAt(pageId, PAGE_W / 2, PAGE_H / 2);
-    if (result) setSelection(result);
-    return !!result;
-  }, [viewportCenterPageId]);
-
   // Global clipboard + keyboard shortcuts.
   useEffect(() => {
     const isTyping = () => {
@@ -685,7 +672,7 @@ export default function PlannerShell() {
       window.removeEventListener("blur", onLeaveApp);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [pasteImage, pasteSelectionCentered]);
+  }, [pasteImage, pasteTargetPageId]);
 
   // Scheduled Google auto-sync: checked shortly after launch and then every
   // few minutes; maybeAutoSync gates itself on the user's chosen interval.
