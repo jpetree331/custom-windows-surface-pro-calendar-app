@@ -114,6 +114,16 @@ describe("backup round-trip", () => {
     expect(pages.some((p) => p.id === victim.id)).toBe(true);
   });
 
+  it("marks the database dirty so the Drive auto-backup picks up a restore", async () => {
+    const json = await (await createBackup()).text();
+    await Promise.all(db.tables.map((t) => t.clear()));
+    await restoreBackup(json);
+    const tables = new Set((await db.syncQueue.toArray()).map((q) => q.table));
+    expect(tables.has("strokes")).toBe(true);
+    expect(tables.has("blocks")).toBe(true);
+    expect(tables.has("notes")).toBe(true);
+  });
+
   it("rejects files that are not planner backups", async () => {
     await expect(restoreBackup(JSON.stringify({ hello: 1 }))).rejects.toThrow(/Not a Jo's Planner backup/);
     await expect(restoreBackup(JSON.stringify({ format: "jotter-backup", version: 99, tables: {} })))

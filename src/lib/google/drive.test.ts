@@ -72,6 +72,23 @@ describe("Drive backup client", () => {
 });
 
 describe("autoDriveBackup gating", () => {
+  it("a fresh install that only seeded its planner never overwrites the Drive backup", async () => {
+    const drive = fakeDrive();
+    // seeding queues planner/page rows (r13), but there is no handwriting yet
+    await db.syncQueue.add({ table: "planners", rowId: "p1", op: "put", ts: 1 });
+    await db.syncQueue.add({ table: "pages", rowId: "pg1", op: "put", ts: 1 });
+    expect(await autoDriveBackup({ token: "t", fetchImpl: drive.fetchImpl, now: 10_000_000 })).toBe("clean");
+    expect(drive.store).toHaveLength(0);
+    // the first real stroke makes the device worth backing up
+    await db.strokes.add({
+      id: "s1", pageId: "pg1", tool: "pen", color: "#000", width: 1, opacity: 1,
+      points: [[1, 1, 0.5], [2, 2, 0.5]], createdAt: 1,
+    });
+    await db.syncQueue.add({ table: "strokes", rowId: "s1", op: "put", ts: 1 });
+    expect(await autoDriveBackup({ token: "t", fetchImpl: drive.fetchImpl, now: 10_000_000 })).toBe("done");
+    expect(drive.store).toHaveLength(1);
+  });
+
   it("skips without a token, skips when clean, uploads when dirty, throttles repeats", async () => {
     const drive = fakeDrive();
     expect(await autoDriveBackup({ token: null })).toBe("no-token");
@@ -81,6 +98,10 @@ describe("autoDriveBackup gating", () => {
 
     // dirty → uploads, and the rows the backup captured are swept (only the
     // newest stays, so the fresh-install guard still sees "something written")
+    await db.strokes.add({
+      id: "s0", pageId: "pg", tool: "pen", color: "#000", width: 1, opacity: 1,
+      points: [[1, 1, 0.5], [2, 2, 0.5]], createdAt: 1,
+    });
     await db.syncQueue.add({ table: "strokes", rowId: "s0", op: "put", ts: 1 });
     await db.syncQueue.add({ table: "strokes", rowId: "s1", op: "put", ts: 1 });
     expect(await autoDriveBackup({ token: "t", fetchImpl: drive.fetchImpl, now: 10_000_000 })).toBe("done");

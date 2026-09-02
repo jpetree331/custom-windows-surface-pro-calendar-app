@@ -30,6 +30,11 @@ export async function autoDriveBackup(opts?: {
   // lastSeq === 0: nothing was ever written on this device — never auto-upload
   // (a fresh install must not clobber a good Drive backup before restore).
   if (lastSeq === 0 || lastSeq === doneSeq) return "clean";
+  // Seeding a planner queues rows too (r13), so an empty new install is no
+  // longer "clean" by that test alone. Until this device has uploaded once
+  // (or restored, which queues), it must also hold something worth keeping —
+  // ink, text or a note — or a blank planner would replace the real backup.
+  if (localStorage.getItem(SEQ_KEY) === null && !(await hasUserContent())) return "clean";
 
   const now = opts?.now ?? Date.now();
   const lastAt = Number(localStorage.getItem(TIME_KEY) ?? "0");
@@ -57,6 +62,15 @@ export async function autoDriveBackup(opts?: {
  */
 async function pruneSyncQueue(seq: number) {
   await db.syncQueue.where("seq").below(seq).delete();
+}
+
+async function hasUserContent(): Promise<boolean> {
+  const [strokes, blocks, notes] = await Promise.all([
+    db.strokes.count(),
+    db.blocks.count(),
+    db.notes.count(),
+  ]);
+  return strokes + blocks + notes > 0;
 }
 
 /** Timestamp of the last successful Drive upload from this device, if any. */

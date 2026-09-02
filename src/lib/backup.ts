@@ -2,6 +2,7 @@ import { db } from "@/lib/db/db";
 import type { Block } from "@/lib/db/types";
 import { purgeMoonPhaseDuplicates } from "@/lib/google/import";
 import { clearPathCache } from "@/lib/ink/render";
+import { queueSync } from "@/lib/sync";
 
 /**
  * Full-planner backup: every table serialized to one JSON file (image blobs
@@ -188,6 +189,12 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
     }
   );
   await normalizePageIndexes();
+  // Mark the database dirty, or the silent Drive backup would see a "clean"
+  // queue and skip everything a restore just brought in. The queue is a
+  // dirty flag (see backup-auto.ts), so one row per touched table is enough.
+  for (const [name, n] of Object.entries(restored)) {
+    if (n > 0) await queueSync(name, "*restore*", "put");
+  }
   // Restored strokes may share ids with cached outlines from before (a stroke
   // moved locally, then restored to its old spot) — never draw the stale one.
   clearPathCache();
