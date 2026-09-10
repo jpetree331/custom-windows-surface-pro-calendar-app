@@ -229,7 +229,9 @@ export default function EventChips({
     <div
       ref={rootRef}
       className="relative h-full w-full min-w-0"
-      style={{ fontSize: compact ? "1.05cqw" : "1.4cqw" }}
+      // 1.9cqw is the same on-page size as her 10pt text boxes (Jo r14:
+      // "about 8pt, make it 10 or 12"); month cells scale down with the cell
+      style={{ fontSize: compact ? "1.4cqw" : "1.9cqw" }}
     >
       {/* The root still spans the WHOLE cell so dragged chips keep their
           stored %-offsets; only the flow layout moves (Jo r13). */}
@@ -243,7 +245,7 @@ export default function EventChips({
       >
         {flow.slice(0, maxFlow).map((e) => chipEl(e, false))}
         {flow.length > maxFlow && (
-          <span className="text-slate-600" style={{ fontSize: "1cqw" }}>
+          <span className="text-slate-600" style={{ fontSize: "1.3cqw" }}>
             +{flow.length - maxFlow} more
           </span>
         )}

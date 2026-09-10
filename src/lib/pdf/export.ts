@@ -285,7 +285,9 @@ function drawDayMarks(
   );
   const max = compact ? 3 : 5;
   events.slice(0, max).forEach((e, i) => {
-    const size = compact ? 5 : 6.5;
+    // print size tracks the screen bump (Jo r14): 10pt-equivalent on week
+    // pages, smaller in the month grid
+    const size = compact ? 6 : 8;
     const rowH = size + 3;
     const yTop = compact ? box.y + 12 + i * rowH : box.y + box.h - (max - i) * rowH - 4;
     const color =

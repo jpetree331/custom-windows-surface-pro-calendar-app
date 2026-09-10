@@ -9,6 +9,7 @@
 | 3 | Only the text visible when moving a box | While a grip- or box-drag is in flight the toolbar, handles, outline and white editing background all hide; only the words (and the grip under her pen) remain. The toolbar also hides during a resize, so it can't jump around as the box changes. |
 | 4 | Default text size 10 | New calendar text boxes start at 10pt (was 12). Notes keep 18pt; existing boxes keep their own size. |
 | 5 | Birthdays, then appointments, then tasks on the same day | Chips were coming back in database order, which for a busy day is effectively shuffled. Every day cell (week and month pages, and the PDF) now lists birthdays, then appointments by clock time (all-day first), then Google Tasks, then reminder chips. Dragged chips keep their pinned spots. |
+| 6 | Imported chips bigger — "about 8pt, maybe 10 or 12" | Week-page chips went from 1.4 to 1.9cqw, which is the same on-page size as her 10pt text boxes; month-grid chips 1.05 → 1.4cqw (the cells are a third the width); REMINDERS-panel chips 1.35 → 1.7cqw. The PDF tracks it: 8pt on week pages (was 6.5), 6pt in the month grid (was 5). Four items on one day still use under half the day row. |
 
 ## Verification
 

@@ -44,7 +44,7 @@ export default function WeekReminders({ weekStartISO }: { weekStartISO: string }
                 ? "bg-pink-100/90 text-pink-800"
                 : "bg-slate-200/90 text-slate-700"
             }`}
-            style={{ fontSize: "1.35cqw" }}
+            style={{ fontSize: "1.7cqw" }} // up with the day chips (Jo r14)
           >
             {n.leadLabel ?? n.title}
           </span>
