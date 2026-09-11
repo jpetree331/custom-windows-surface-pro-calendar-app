@@ -8,6 +8,7 @@ import { addCategory, deleteCategory, updateCategory } from "@/lib/categories/ac
 import SideButtonEditor from "./SideButtonEditor";
 import GooglePanel from "./GooglePanel";
 import BackupPanel from "./BackupPanel";
+import BackgroundPanel from "./BackgroundPanel";
 import { usePlannerUI } from "./ui-context";
 import { useEffect } from "react";
 import { chooseSaveFolder, clearSaveFolder, folderPickingSupported, getSaveFolderName } from "@/lib/save";
@@ -166,6 +167,8 @@ export default function ManageDialog({
             ))}
           </div>
         </div>
+
+        <BackgroundPanel plannerId={plannerId} />
 
         {folderPickingSupported() && (
           <>

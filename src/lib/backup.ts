@@ -1,5 +1,5 @@
 import { db } from "@/lib/db/db";
-import type { Block } from "@/lib/db/types";
+import type { Asset, Block } from "@/lib/db/types";
 import { purgeMoonPhaseDuplicates } from "@/lib/google/import";
 import { clearPathCache } from "@/lib/ink/render";
 import { queueSync } from "@/lib/sync";
@@ -40,9 +40,10 @@ type SerializedBlock = Omit<Block, "imageBlob"> & {
   imageB64?: string;
   imageType?: string;
 };
+type SerializedAsset = Omit<Asset, "blob"> & { b64: string; type: string };
 
 export async function createBackup(): Promise<Blob> {
-  const [planners, pages, strokes, blocks, habits, habitChecks, categories, events, sideButtons, notes] =
+  const [planners, pages, strokes, blocks, habits, habitChecks, categories, events, sideButtons, notes, assets] =
     await Promise.all([
       db.planners.toArray(),
       db.pages.toArray(),
@@ -54,6 +55,7 @@ export async function createBackup(): Promise<Blob> {
       db.events.toArray(),
       db.sideButtons.toArray(),
       db.notes.toArray(),
+      db.assets.toArray(),
     ]);
 
   const serializedBlocks: SerializedBlock[] = await Promise.all(
@@ -64,6 +66,16 @@ export async function createBackup(): Promise<Blob> {
         ...rest,
         imageB64: bytesToBase64(new Uint8Array(await imageBlob.arrayBuffer())),
         imageType: imageBlob.type || "image/png",
+      };
+    })
+  );
+  const serializedAssets: SerializedAsset[] = await Promise.all(
+    assets.map(async (a) => {
+      const { blob, ...rest } = a;
+      return {
+        ...rest,
+        b64: bytesToBase64(new Uint8Array(await blob.arrayBuffer())),
+        type: blob.type || "image/jpeg",
       };
     })
   );
@@ -78,6 +90,7 @@ export async function createBackup(): Promise<Blob> {
       habits, habitChecks, categories, events,
       // note ink/text rides along in strokes/blocks (pageId = note id)
       sideButtons, notes,
+      assets: serializedAssets,
     },
   };
   return new Blob([JSON.stringify(payload)], { type: "application/json" });
@@ -91,7 +104,7 @@ export interface RestoreResult {
 }
 
 /** Tables whose rows carry updatedAt, so a restore can compare recency. */
-const STAMPED = new Set(["planners", "pages", "blocks", "events", "notes"]);
+const STAMPED = new Set(["planners", "pages", "blocks", "events", "notes", "assets"]);
 
 interface MergeTable {
   bulkGet(keys: string[]): Promise<(unknown | undefined)[]>;
@@ -164,11 +177,16 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
       : rest;
   });
 
+  const assets: Asset[] = ((data.tables.assets ?? []) as SerializedAsset[]).map((a) => {
+    const { b64, type, ...rest } = a;
+    return { ...rest, blob: new Blob([base64ToBytes(b64) as BlobPart], { type }) };
+  });
+
   const restored: Record<string, number> = {};
   let kept = 0;
   await db.transaction(
     "rw",
-    [db.planners, db.pages, db.strokes, db.blocks, db.habits, db.habitChecks, db.categories, db.events, db.sideButtons, db.notes],
+    [db.planners, db.pages, db.strokes, db.blocks, db.habits, db.habitChecks, db.categories, db.events, db.sideButtons, db.notes, db.assets],
     async () => {
       const put = async (name: string, table: MergeTable, rows: unknown[]) => {
         const r = await mergeRows(name, table, rows);
@@ -186,6 +204,7 @@ export async function restoreBackup(json: string): Promise<RestoreResult> {
       // absent in pre-round-9 backups — degrades to a no-op
       await put("sideButtons", db.sideButtons, data.tables.sideButtons ?? []);
       await put("notes", db.notes, data.tables.notes ?? []);
+      await put("assets", db.assets, assets); // absent before r15 — no-op
     }
   );
   await normalizePageIndexes();

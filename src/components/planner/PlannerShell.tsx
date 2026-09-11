@@ -40,6 +40,7 @@ import { importYear, purgeMoonPhaseDuplicates } from "@/lib/google/import";
 import { getAccessToken, googleClientId } from "@/lib/google/auth";
 import { ensureStarterCategories } from "@/lib/categories/actions";
 import { addSideButton, ensureSideButtonsSeeded } from "@/lib/planner/sideButtons";
+import { backgroundStrengthOf } from "@/lib/background";
 import NotepadManager from "./notepad/NotepadManager";
 import PageView from "./pages/PageView";
 import TopBar from "./TopBar";
@@ -175,6 +176,32 @@ export default function PlannerShell() {
     const saved = Number(localStorage.getItem("jotter.activeYear"));
     void loadYear(saved >= 2020 && saved <= 2100 ? saved : PLANNER_YEAR);
   }, [loadYear]);
+
+  // Custom page background (Jo r15): ONE object URL for all 79 pages, made
+  // here rather than per page, and revoked when the picture changes.
+  const bgAsset = useLiveQuery(
+    () =>
+      planner
+        ? db.assets.where("[plannerId+kind]").equals([planner.id, "background"]).first()
+        : undefined,
+    [planner?.id]
+  );
+  const livePlanner = useLiveQuery(() => (planner ? db.planners.get(planner.id) : undefined), [planner?.id]);
+  const [bgUrl, setBgUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!bgAsset) {
+      setBgUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(bgAsset.blob);
+    setBgUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [bgAsset]);
+  const bgStrength = backgroundStrengthOf(livePlanner?.settings ?? planner?.settings);
+  const background = useMemo(
+    () => (bgUrl ? { url: bgUrl, strength: bgStrength } : null),
+    [bgUrl, bgStrength]
+  );
 
   const pages = useLiveQuery(
     () =>
@@ -390,6 +417,7 @@ export default function PlannerShell() {
       plannerId: planner?.id ?? "",
       year: planner?.year ?? PLANNER_YEAR,
       todayISO,
+      background,
       tool,
       penColor,
       penWidth,
@@ -429,7 +457,7 @@ export default function PlannerShell() {
       },
       flipPage,
     }),
-    [planner?.id, planner?.year, todayISO, tool, penColor, penWidth, eraserRadius, selectedBlockId, selection, timeFormat, currentPageId, jumpToIndex, flipPage]
+    [planner?.id, planner?.year, todayISO, background, tool, penColor, penWidth, eraserRadius, selectedBlockId, selection, timeFormat, currentPageId, jumpToIndex, flipPage]
   );
 
   const jumpToMonth = useCallback(

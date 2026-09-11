@@ -2,13 +2,19 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PAGE_W, PAGE_H } from "@/lib/planner/constants";
+import { usePlannerUI } from "../ui-context";
 
 /**
  * Shared page chrome: the mint→sky gradient sheet with the planner's aspect
  * ratio. `container-type: inline-size` lets templates size text in cqw so the
  * layout scales with page width (1cqw = 10 logical units of PAGE_W=1000).
+ *
+ * Jo r15: her own picture can sit on top of the gradient, cropped to the
+ * page (object-fit: cover) and faded by the strength she chose. An <img>,
+ * not a CSS background, so Ctrl+P prints it too.
  */
 export default function PageFrame({ children }: { children: ReactNode }) {
+  const { background } = usePlannerUI();
   return (
     <div
       className="relative mx-auto w-full overflow-hidden rounded-md shadow-md"
@@ -19,6 +25,17 @@ export default function PageFrame({ children }: { children: ReactNode }) {
           "linear-gradient(90deg, #d9f5dc 0%, #cdeef2 45%, #a9c6f7 100%)",
       }}
     >
+      {background && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={background.url}
+          alt=""
+          draggable={false}
+          data-page-background
+          className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
+          style={{ opacity: background.strength }}
+        />
+      )}
       {children}
     </div>
   );

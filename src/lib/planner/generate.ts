@@ -83,7 +83,7 @@ export function buildPages(plannerId: string, year: number): Page[] {
 export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<Planner> {
   return db.transaction(
     "rw",
-    [db.planners, db.pages, db.categories, db.habits, db.sideButtons, db.syncQueue],
+    [db.planners, db.pages, db.categories, db.habits, db.sideButtons, db.assets, db.syncQueue],
     async () => {
     let p = await db.planners.where("year").equals(year).first();
     if (p) {
@@ -93,11 +93,17 @@ export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<
       return p;
     }
 
+    const previous = (await db.planners.where("year").below(year).toArray())
+      .sort((a, b) => b.year - a.year)[0];
     p = {
       id: crypto.randomUUID(),
       year,
       title: `${PLANNER_NAME} '${String(year).slice(2)}`,
-      settings: {},
+      // the background strength travels with the picture (Jo r15)
+      settings:
+        previous && typeof previous.settings.backgroundStrength === "number"
+          ? { backgroundStrength: previous.settings.backgroundStrength }
+          : {},
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -107,8 +113,6 @@ export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<
     await queueSync("planners", p.id, "put");
     await queueAll("pages", fresh);
 
-    const previous = (await db.planners.where("year").below(year).toArray())
-      .sort((a, b) => b.year - a.year)[0];
     if (previous) {
       // New year starts set up the way Jo left the previous one.
       const [cats, habits, prevPages, prevButtons] = await Promise.all([
@@ -159,6 +163,15 @@ export async function ensurePlannerSeeded(year: number = PLANNER_YEAR): Promise<
         });
       await db.sideButtons.bulkAdd(newButtons);
       await queueAll("sideButtons", newButtons);
+
+      // …and her page background (Jo r15)
+      const bg = await db.assets
+        .where("[plannerId+kind]").equals([previous.id, "background"]).first();
+      if (bg) {
+        const copy = { ...bg, id: crypto.randomUUID(), plannerId: p.id, updatedAt: Date.now() };
+        await db.assets.add(copy);
+        await queueSync("assets", copy.id, "put");
+      }
     } else {
       // Very first planner ever: seed Jo's starter categories atomically.
       const starters = STARTERS.map((s, i) => ({

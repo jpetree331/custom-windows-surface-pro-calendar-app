@@ -10,6 +10,7 @@ import type {
   PlannerEvent,
   SideButton,
   Note,
+  Asset,
   SyncQueueItem,
 } from "./types";
 
@@ -27,6 +28,8 @@ export class JotterDB extends Dexie {
   /** Notes are app-global (not planner-scoped); their ink/text lives in
    *  strokes/blocks keyed by pageId = note.id. */
   notes!: EntityTable<Note, "id">;
+  /** Per-planner pictures (page background) — in backups, unlike kv. */
+  assets!: EntityTable<Asset, "id">;
   syncQueue!: EntityTable<SyncQueueItem, "seq">;
   /** Device-local key/value store (e.g. the chosen save-folder handle).
    *  Deliberately NOT part of backups — it's per-device state. */
@@ -58,6 +61,10 @@ export class JotterDB extends Dexie {
     this.version(4).stores({
       sideButtons: "id, plannerId",
       notes: "id, updatedAt",
+    });
+    // v5: additive assets table (custom page background, Jo r15).
+    this.version(5).stores({
+      assets: "id, plannerId, [plannerId+kind]",
     });
   }
 }

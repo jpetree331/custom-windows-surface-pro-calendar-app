@@ -174,6 +174,17 @@ export interface Note {
   updatedAt: number;
 }
 
+/** A per-planner picture asset — today only the page background (Jo r15).
+ *  Blobs live here rather than in planner.settings so backups can base64
+ *  them like image blocks. */
+export interface Asset {
+  id: string;
+  plannerId: string;
+  kind: "background";
+  blob: Blob;
+  updatedAt: number;
+}
+
 export interface SyncQueueItem {
   seq?: number;
   table: string;

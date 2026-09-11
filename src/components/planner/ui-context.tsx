@@ -21,6 +21,9 @@ export interface PlannerUI {
   /** Today's ISO date, rolled over at midnight and on resume — so the TODAY
    *  outline and past-event fade move on a tablet left open overnight. */
   todayISO: string;
+  /** Custom page background (Jo r15): one object URL shared by every page,
+   *  plus how strongly it shows (0.1–1). Null = the classic gradient only. */
+  background: { url: string; strength: number } | null;
   tool: ToolId;
   penColor: string;
   penWidth: number;

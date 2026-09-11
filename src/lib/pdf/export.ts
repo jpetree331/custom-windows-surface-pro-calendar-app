@@ -1,6 +1,7 @@
 import {
   PDFDocument,
   PDFFont,
+  PDFImage,
   PDFName,
   PDFPage,
   PDFRef,
@@ -21,6 +22,7 @@ import { moonPhasesForYear } from "@/lib/calendar/moon";
 import { PT_TO_UNITS, HIGHLIGHTER_OPACITY } from "@/lib/ink/tools";
 import { formatTime } from "@/lib/settings";
 import { sortDayEvents } from "@/lib/events/layout";
+import { backgroundStrengthOf } from "@/lib/background";
 
 /** US Letter — aspect 0.773 vs the logical page's 0.769: near-perfect fit. */
 const PT_W = 612;
@@ -79,11 +81,23 @@ interface Ctx {
   checks: Set<string>; // habitId|date
   /** Per-planner side buttons (falls back to the classic six). */
   sideButtons: SideButton[];
+  /** Custom page background, embedded once and drawn on every page (Jo r15). */
+  background?: { image: PDFImage; strength: number };
 }
 
 /* ---------------------------------- chrome --------------------------------- */
 
 const TAB_H = 26; // logical units
+
+/** Cover the page with the picture, cropped like CSS object-fit: cover. */
+function drawBackground(ctx: Ctx, page: PDFPage) {
+  if (!ctx.background) return;
+  const { image, strength } = ctx.background;
+  const s = Math.max(PT_W / image.width, PT_H / image.height);
+  const w = image.width * s;
+  const h = image.height * s;
+  page.drawImage(image, { x: (PT_W - w) / 2, y: (PT_H - h) / 2, width: w, height: h, opacity: strength });
+}
 
 function drawGradient(page: PDFPage) {
   const strips = 40;
@@ -846,6 +860,15 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
     ),
     sideButtons,
   };
+  const bgRow = await db.assets.where("[plannerId+kind]").equals([planner.id, "background"]).first();
+  if (bgRow) {
+    try {
+      const image = await embedImage(ctx, new Uint8Array(await bgRow.blob.arrayBuffer()));
+      if (image) ctx.background = { image, strength: backgroundStrengthOf(planner.settings) };
+    } catch {
+      // an unreadable picture must not sink the export — pages print plain
+    }
+  }
 
   // pass 1: create pages so links can reference any target
   for (let i = 0; i < pages.length; i++) ctx.pdfPages.push(doc.addPage([PT_W, PT_H]));
@@ -855,6 +878,7 @@ export async function exportPdf(opts: ExportOptions): Promise<Uint8Array> {
     const p = pages[i];
     const page = ctx.pdfPages[i];
     drawGradient(page);
+    drawBackground(ctx, page);
     if (p.type === "week") drawWeek(ctx, page, p);
     else if (p.type === "month") drawMonth(ctx, page, p);
     else if (p.type === "year") drawYear(ctx, page, p);
